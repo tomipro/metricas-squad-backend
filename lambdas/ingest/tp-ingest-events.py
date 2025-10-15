@@ -26,7 +26,29 @@ EVENT_SCHEMAS = {
     "reserva_creada": ["reservaId", "vueloId", "precio", "userId"],
     "vuelo_cancelado": ["vueloId", "motivo"],
     "pago_rechazado": ["pagoId", "monto", "razon"],
-    "usuario_registrado": ["userId", "canal"]
+    "usuario_registrado": ["userId", "canal"],
+    "search_metric": [
+        "flightsFrom",
+        "flightsTo",
+        "dateFrom",
+        "dateTo",
+        "resultsCount",
+        "userId",
+    ],
+    "catalogo": [
+        "id",
+        "id_vuelo",
+        "aerolinea",
+        "origen",
+        "destino",
+        "precio",
+        "moneda",
+        "despegue",
+        "aterrizaje_local",
+        "estado_vuelo",
+        "capacidadAvion",
+        "tipoAvion",
+    ],
 }
 
 def lambda_handler(event, context):
@@ -38,6 +60,19 @@ def lambda_handler(event, context):
         body = _parse_event_body(event)
         if isinstance(body, dict) and "error" in body:
             return _response(400, body)
+
+        # Compatibilidad con eventos SearchMetric/Catálogo que pueden omitir `ts` o `type`
+        if isinstance(body, dict):
+            if "ts" not in body:
+                if body.get("timestamp"):
+                    body["ts"] = body["timestamp"]
+                elif body.get("despegue"):
+                    body["ts"] = body["despegue"]
+            if "type" not in body:
+                if _looks_like_search_metric(body):
+                    body["type"] = "search_metric"
+                elif _looks_like_catalog_event(body):
+                    body["type"] = "catalogo"
         
         # Validación mínima
         missing = [f for f in REQUIRED_FIELDS if f not in body]
@@ -194,3 +229,32 @@ def _has_all_optional_fields(body, event_type):
     
     optional_fields = EVENT_SCHEMAS[event_type]
     return all(field in body for field in optional_fields)
+
+def _looks_like_search_metric(body: Dict[str, Any]) -> bool:
+    required = {
+        "flightsFrom",
+        "flightsTo",
+        "dateFrom",
+        "dateTo",
+        "resultsCount",
+        "timestamp",
+        "userId",
+    }
+    return required.issubset(set(body.keys()))
+
+def _looks_like_catalog_event(body: Dict[str, Any]) -> bool:
+    required = {
+        "id",
+        "id_vuelo",
+        "aerolinea",
+        "origen",
+        "destino",
+        "precio",
+        "moneda",
+        "despegue",
+        "aterrizaje_local",
+        "estado_vuelo",
+        "capacidadAvion",
+        "tipoAvion",
+    }
+    return required.issubset(set(body.keys()))

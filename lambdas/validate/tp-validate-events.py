@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import boto3
 import logging
 from datetime import datetime
@@ -34,29 +35,38 @@ class ValidationStatus(Enum):
     INVALID = "invalid"
     CORRUPTED = "corrupted"
 
+VALID_AIRCRAFT_TYPES = {"E190", "A330", "B737"}
+FLIGHT_STATUS_CANONICAL = {
+    "en hora": "En hora",
+    "en_hora": "En hora",
+    "on time": "En hora",
+    "ontime": "En hora",
+    "demorado": "Demorado",
+    "delayed": "Demorado",
+    "delay": "Demorado",
+    "cancelado": "Cancelado",
+    "cancelled": "Cancelado",
+}
+
+def _is_valid_date(value: str) -> bool:
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except Exception:
+        return False
+
+def _is_valid_currency(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Z]{3}", value))
+
+def _normalize_currency(value: str) -> str:
+    return value.upper()
+
+def _normalize_flight_status(value: str) -> Union[str, None]:
+    normalized = FLIGHT_STATUS_CANONICAL.get(value.strip().lower())
+    return normalized
+
 # ---------- Esquemas de Validación ----------
 EVENT_SCHEMAS = {
-    # Para funnel y métricas de búsqueda → reserva → pago
-    "busqueda_realizada": {
-        "required": ["searchId", "origin", "destination", "dateOut"],
-        "optional": ["adults", "cabin", "sessionId", "userId"],
-        "types": {
-            "searchId": str,
-            "origin": str,
-            "destination": str,
-            "dateOut": str,   # 'YYYY-MM-DD' recomendado
-            "adults": int,
-            "cabin": str,
-            "sessionId": str,
-            "userId": str
-        },
-        "constraints": {
-            "searchId": lambda x: len(x) > 0,
-            "origin": lambda x: len(x) > 0,
-            "destination": lambda x: len(x) > 0
-        }
-    },
-
     # Reserva creada: agrego airlineCode/origin/destination/flightDate/searchId
     "reserva_creada": {
         "required": ["reservaId", "vueloId", "precio", "userId"],
@@ -163,6 +173,69 @@ EVENT_SCHEMAS = {
             "canal": lambda x: str(x) in ["web", "mobile", "api"],
             "email": lambda x: ("@" in x) if x else True
         }
+    },
+
+    # Métricas agregadas del módulo de búsquedas
+    "search_metric": {
+        "required": ["flightsFrom", "flightsTo", "dateFrom", "dateTo", "resultsCount", "userId"],
+        "optional": [],
+        "types": {
+            "flightsFrom": str,
+            "flightsTo": str,
+            "dateFrom": str,
+            "dateTo": str,
+            "resultsCount": int,
+            "userId": str
+        },
+        "constraints": {
+            "flightsFrom": lambda x: len(str(x)) > 0,
+            "flightsTo": lambda x: len(str(x)) > 0,
+            "dateFrom": lambda x: _is_valid_date(str(x)),
+            "dateTo": lambda x: _is_valid_date(str(x)),
+            "resultsCount": lambda x: int(x) >= 0,
+            "userId": lambda x: len(str(x)) > 0
+        }
+    },
+
+    # Catálogo de vuelos disponibles
+    "catalogo": {
+        "required": [
+            "id",
+            "id_vuelo",
+            "aerolinea",
+            "origen",
+            "destino",
+            "precio",
+            "moneda",
+            "despegue",
+            "aterrizaje_local",
+            "estado_vuelo",
+            "capacidadAvion",
+            "tipoAvion"
+        ],
+        "optional": [],
+        "types": {
+            "id": int,
+            "id_vuelo": str,
+            "aerolinea": str,
+            "origen": str,
+            "destino": str,
+            "precio": (int, float),
+            "moneda": str,
+            "despegue": str,
+            "aterrizaje_local": str,
+            "estado_vuelo": str,
+            "capacidadAvion": int,
+            "tipoAvion": str
+        },
+        "constraints": {
+            "id": lambda x: int(x) > 0,
+            "precio": lambda x: float(x) > 0,
+            "moneda": lambda x: _is_valid_currency(str(x).upper()),
+            "despegue": lambda x: bool(x),
+            "aterrizaje_local": lambda x: bool(x),
+            "capacidadAvion": lambda x: int(x) > 0
+        }
     }
 }
 
@@ -179,7 +252,6 @@ except Exception as e:
     logger.warning(f"Parquet not available: {e}. Will fallback to JSON when needed.")
 
 # ---------- Utils de tipos ----------
-
 def _coerce_value(value: Any, expected: Union[type, Tuple[type, ...]]) -> Tuple[Any, bool]:
     def _try_one(v: Any, t: type) -> Tuple[Any, bool]:
         try:
@@ -365,6 +437,36 @@ def _validate_and_normalize(event_data: Dict[str, Any]) -> Dict[str, Any]:
                 except Exception as e:
                     errors.append(f"Error validating constraint for {field}: {e}")
 
+        if event_type == "catalogo":
+            for ts_field in ("despegue", "aterrizaje_local"):
+                if ts_field in event_data:
+                    try:
+                        event_data[ts_field] = _normalize_iso_utc(str(event_data[ts_field]))
+                    except ValueError as e:
+                        errors.append(f"{ts_field} invalid timestamp: {e}")
+            currency = event_data.get("moneda")
+            if currency is not None:
+                if isinstance(currency, str):
+                    normalized_currency = _normalize_currency(currency)
+                    event_data["moneda"] = normalized_currency
+                    if not _is_valid_currency(normalized_currency):
+                        errors.append("moneda must be a valid ISO 4217 code (3 letras)")
+                else:
+                    errors.append("moneda must be a string")
+            status_value = event_data.get("estado_vuelo")
+            if status_value is not None:
+                normalized_status = _normalize_flight_status(str(status_value))
+                if normalized_status:
+                    event_data["estado_vuelo"] = normalized_status
+                else:
+                    warnings.append(f"Unknown estado_vuelo: {status_value}")
+            aircraft_type = event_data.get("tipoAvion")
+            if aircraft_type is not None:
+                normalized_type = str(aircraft_type).upper()
+                event_data["tipoAvion"] = normalized_type
+                if normalized_type not in VALID_AIRCRAFT_TYPES:
+                    warnings.append(f"Unknown aircraft type: {normalized_type}")
+
         # 4) Warnings por campos inesperados
         expected_fields = set(schema["required"] + schema.get("optional", []))
         system_fields = {"type", "ts", "eventId", "receivedAt", "requestId", "metadata"}
@@ -409,7 +511,7 @@ def _validate_and_normalize(event_data: Dict[str, Any]) -> Dict[str, Any]:
 def _store_valid_event(event_data: Dict[str, Any], original_key: str) -> str:
     """
     Guarda el evento validado en CURATED como Parquet (si está disponible) o JSON.
-    ✱ Importante: NO incluye el campo 'type' dentro del archivo (solo en partición)
+    ✱ Importante: se utiliza un esquema homogéneo para todos los tipos de evento.
     """
     event_type = str(event_data.get("type", "unknown"))
     event_id = str(event_data.get("eventId", "unknown"))
@@ -429,15 +531,34 @@ def _store_valid_event(event_data: Dict[str, Any], original_key: str) -> str:
         now = datetime.utcnow()
         key_out = f"year={now.year}/month={now.month:02}/day={now.day:02}/type={event_type}/{event_id}.parquet"
 
-    # Remover 'type' del payload para evitar conflicto con partición
-    to_store = dict(event_data)
-    to_store.pop("type", None)
+    # Construir payload homogéneo
+    base_fields = {
+        "type",
+        "ts",
+        "eventId",
+        "receivedAt",
+        "requestId",
+        "metadata",
+        "validation",
+    }
+    payload = {k: v for k, v in event_data.items() if k not in base_fields}
+    record = {
+        "eventType": event_type,
+        "ts": event_data.get("ts"),
+        "eventId": event_id,
+        "requestId": event_data.get("requestId"),
+        "receivedAt": event_data.get("receivedAt"),
+        "metadata_json": json.dumps(event_data.get("metadata", {}), ensure_ascii=False),
+        "validation_json": json.dumps(event_data.get("validation", {}), ensure_ascii=False),
+        "payload_json": json.dumps(payload, ensure_ascii=False),
+        "ingestedAt": datetime.utcnow().isoformat() + "Z",
+    }
 
     # Parquet si se puede, sino JSON
     try:
         if not PARQUET_AVAILABLE:
             raise RuntimeError("Parquet not available")
-        df = pd.DataFrame([to_store])
+        df = pd.DataFrame([record])
         buf = BytesIO()
         df.to_parquet(buf, index=False, engine="pyarrow", compression="snappy")
         buf.seek(0)
@@ -455,7 +576,7 @@ def _store_valid_event(event_data: Dict[str, Any], original_key: str) -> str:
         s3.put_object(
             Bucket=CURATED_BUCKET,
             Key=key_json,
-            Body=json.dumps(to_store, ensure_ascii=False),
+            Body=json.dumps(record, ensure_ascii=False),
             ContentType="application/json",
             Metadata={"validation-status": "valid", "original-key": original_key, "event-type": event_type, "format": "json"},
         )

@@ -3,7 +3,7 @@ import boto3
 import logging
 import os
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Optional
 import time
 
 logger = logging.getLogger()
@@ -54,6 +54,16 @@ def lambda_handler(event, context):
             out = _events_data(qs)
         elif path.endswith('/analytics/summary'):
             out = _summary(qs)
+        elif path.endswith('/analytics/search-metrics'):
+            out = _search_metrics(qs)
+        elif path.endswith('/analytics/catalog/airline-summary'):
+            out = _catalog_airline_summary(qs)
+        elif path.endswith('/analytics/catalog/status'):
+            out = _catalog_status(qs)
+        elif path.endswith('/analytics/catalog/aircraft'):
+            out = _catalog_aircraft(qs)
+        elif path.endswith('/analytics/catalog/routes'):
+            out = _catalog_routes(qs)
 
         # ---- NUEVOS ENDPOINTS ----
         elif path.endswith('/analytics/funnel'):
@@ -93,6 +103,11 @@ def lambda_handler(event, context):
                     "/analytics/revenue",
                     "/analytics/events",
                     "/analytics/summary",
+                    "/analytics/search-metrics",
+                    "/analytics/catalog/airline-summary",
+                    "/analytics/catalog/status",
+                    "/analytics/catalog/aircraft",
+                    "/analytics/catalog/routes",
                     # nuevos
                     "/analytics/funnel",
                     "/analytics/avg-fare",
@@ -186,6 +201,15 @@ def _top(qs: Dict[str, str], key: str, default_val: int) -> int:
     except:
         return default_val
 
+def _currency_filter_clause(qs: Dict[str, str]) -> Tuple[str, Optional[str], bool]:
+    currency = qs.get('currency')
+    if not currency:
+        return "", None, False
+    sanitized = currency.strip().upper()
+    if len(sanitized) == 3 and sanitized.isalpha():
+        return f" AND upper(json_extract_scalar(payload_json, '$.moneda')) = '{sanitized}'", sanitized, False
+    return "", currency, True
+
 # ---------- Endpoints existentes (compatibilidad) ----------
 
 def _health():
@@ -202,7 +226,11 @@ def _recent(qs):
     limit = int(qs.get('limit', '10'))
     hours = int(qs.get('hours', '24'))
     q = f"""
-    SELECT eventid, type, ts, receivedat, validation.status
+    SELECT eventid,
+           type,
+           ts,
+           receivedat,
+           json_extract_scalar(validation_json, '$.status') AS validation_status
     FROM {CURATED_TABLE}
     WHERE from_iso8601_timestamp(ts) >= date_add('hour', -{hours}, now())
     ORDER BY from_iso8601_timestamp(ts) DESC
@@ -232,7 +260,7 @@ def _events_by_type(qs):
     days = _days(qs, 'days', 7)
     q = f"""
     SELECT type, COUNT(*) cnt,
-           AVG(CASE WHEN type='reserva_creada' AND precio IS NOT NULL THEN CAST(precio AS DOUBLE) END) avg_price
+           AVG(CASE WHEN type='reserva_creada' THEN TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE) END) avg_price
     FROM {CURATED_TABLE}
     WHERE from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
     GROUP BY type ORDER BY cnt DESC
@@ -243,10 +271,10 @@ def _events_by_type(qs):
 def _validation_stats(qs):
     days = _days(qs, 'days', 7)
     q = f"""
-    SELECT validation.status, COUNT(*)
+    SELECT json_extract_scalar(validation_json, '$.status') AS status, COUNT(*)
     FROM {CURATED_TABLE}
     WHERE from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-    GROUP BY validation.status
+    GROUP BY json_extract_scalar(validation_json, '$.status')
     """
     res = _exec(q)
     total = sum(r[1] for r in res) if res else 0
@@ -259,11 +287,15 @@ def _revenue_legacy(qs):
     # compat: revenue basado en reservas (precio)
     days = _days(qs, 'days', 30)
     q = f"""
-    SELECT DATE(from_iso8601_timestamp(ts)) d, SUM(CAST(precio AS DOUBLE)), COUNT(*), AVG(CAST(precio AS DOUBLE))
+    SELECT DATE(from_iso8601_timestamp(ts)) d,
+           SUM(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)),
+           COUNT(*),
+           AVG(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE))
     FROM {CURATED_TABLE}
     WHERE type='reserva_creada'
       AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, current_date)
-      AND precio IS NOT NULL AND CAST(precio AS DOUBLE) > 0
+      AND json_extract_scalar(payload_json, '$.precio') IS NOT NULL
+      AND TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE) > 0
     GROUP BY DATE(from_iso8601_timestamp(ts))
     ORDER BY d DESC
     """
@@ -284,7 +316,15 @@ def _events_data(qs):
     days = _days(qs, 'days', 7)
     type_filter = f"AND type='{event_type}'" if event_type else ""
     q = f"""
-    SELECT eventid, type, ts, receivedat, precio, userid, reservaid, vueloid, validation.status
+    SELECT eventid,
+           type,
+           ts,
+           receivedat,
+           json_extract_scalar(payload_json, '$.precio') AS precio,
+           json_extract_scalar(payload_json, '$.userId') AS userid,
+           json_extract_scalar(payload_json, '$.reservaId') AS reservaid,
+           json_extract_scalar(payload_json, '$.vueloId') AS vueloid,
+           json_extract_scalar(validation_json, '$.status') AS validation_status
     FROM {CURATED_TABLE}
     WHERE from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
       {type_filter}
@@ -318,6 +358,191 @@ def _summary(qs):
         "recent_activity": rec["recent_events"]
     }
 
+# ---------- Búsquedas ----------
+
+def _search_metrics(qs):
+    days = _days(qs, 'days', 7)
+    top = _top(qs, 'top', 10)
+    q = f"""
+    SELECT
+           json_extract_scalar(payload_json, '$.flightsFrom') AS flightsfrom,
+           json_extract_scalar(payload_json, '$.flightsTo') AS flightsto,
+           COUNT(*) searches,
+           AVG(TRY_CAST(json_extract_scalar(payload_json, '$.resultsCount') AS DOUBLE)) avg_results,
+           MAX(TRY_CAST(json_extract_scalar(payload_json, '$.resultsCount') AS DOUBLE)) max_results,
+           MIN(TRY_CAST(json_extract_scalar(payload_json, '$.resultsCount') AS DOUBLE)) min_results,
+           AVG(
+             try(date_diff(
+               'day',
+               from_iso8601_timestamp(concat(json_extract_scalar(payload_json, '$.dateFrom'), 'T00:00:00Z')),
+               from_iso8601_timestamp(concat(json_extract_scalar(payload_json, '$.dateTo'), 'T00:00:00Z'))
+             ))
+           ) trip_length_days
+    FROM {CURATED_TABLE}
+    WHERE type = 'search_metric'
+      AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
+    GROUP BY flightsfrom, flightsto
+    ORDER BY searches DESC
+    LIMIT {top}
+    """
+    res = _exec(q)
+
+    return {
+        "period_days": days,
+        "top": top,
+        "routes": [
+            {
+                "flightsFrom": row[0],
+                "flightsTo": row[1],
+                "searches": row[2],
+                "avg_results": row[3],
+                "max_results": row[4],
+                "min_results": row[5],
+                "avg_trip_length_days": row[6],
+            }
+            for row in res
+        ],
+        "total_routes": len(res),
+        "total_searches": sum((row[2] or 0) for row in res),
+    }
+
+# ---------- Catálogo ----------
+
+def _catalog_airline_summary(qs):
+    days = _days(qs, 'days', 7)
+    currency_clause, currency, invalid_currency = _currency_filter_clause(qs)
+    q = f"""
+    SELECT
+        json_extract_scalar(payload_json, '$.aerolinea') AS aerolinea,
+        COUNT(*) flights,
+        AVG(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)) avg_price,
+        MIN(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)) min_price,
+        MAX(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)) max_price,
+        AVG(TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE)) avg_capacity,
+        SUM(TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE)) total_capacity
+    FROM {CURATED_TABLE}
+    WHERE type='catalogo'
+      AND from_iso8601_timestamp(json_extract_scalar(payload_json, '$.despegue')) BETWEEN current_timestamp AND date_add('day', {days}, current_timestamp)
+      {currency_clause}
+    GROUP BY json_extract_scalar(payload_json, '$.aerolinea')
+    ORDER BY flights DESC
+    """
+    res = _exec(q)
+    total_flights = sum((row[1] or 0) for row in res)
+    return {
+        "period_days": days,
+        "currency": currency,
+        "invalid_currency": invalid_currency,
+        "airlines": [
+            {
+                "airline": row[0],
+                "flights": row[1],
+                "avg_price": row[2],
+                "min_price": row[3],
+                "max_price": row[4],
+                "avg_capacity": row[5],
+                "total_capacity": row[6],
+            }
+            for row in res
+        ],
+        "total_flights": total_flights,
+    }
+
+def _catalog_status(qs):
+    days = _days(qs, 'days', 7)
+    q = f"""
+    SELECT
+        json_extract_scalar(payload_json, '$.estado_vuelo') AS estado,
+        COUNT(*) flights
+    FROM {CURATED_TABLE}
+    WHERE type='catalogo'
+      AND from_iso8601_timestamp(json_extract_scalar(payload_json, '$.despegue')) BETWEEN current_timestamp AND date_add('day', {days}, current_timestamp)
+    GROUP BY json_extract_scalar(payload_json, '$.estado_vuelo')
+    """
+    res = _exec(q)
+    total = sum((row[1] or 0) for row in res)
+    on_time = next((row[1] for row in res if str(row[0]).lower() == 'en hora'), 0)
+    return {
+        "period_days": days,
+        "status": [
+            {"status": row[0], "flights": row[1]}
+            for row in res
+        ],
+        "total_flights": total,
+        "on_time_rate_percent": round((on_time / total) * 100, 2) if total else 0.0,
+    }
+
+def _catalog_aircraft(qs):
+    days = _days(qs, 'days', 7)
+    q = f"""
+    SELECT
+        json_extract_scalar(payload_json, '$.tipoAvion') AS tipoavion,
+        COUNT(*) flights,
+        AVG(TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE)) avg_capacity,
+        SUM(TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE)) total_capacity,
+        AVG(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)) avg_price
+    FROM {CURATED_TABLE}
+    WHERE type='catalogo'
+      AND from_iso8601_timestamp(json_extract_scalar(payload_json, '$.despegue')) BETWEEN current_timestamp AND date_add('day', {days}, current_timestamp)
+    GROUP BY json_extract_scalar(payload_json, '$.tipoAvion')
+    ORDER BY flights DESC
+    """
+    res = _exec(q)
+    return {
+        "period_days": days,
+        "aircraft": [
+            {
+                "aircraftType": row[0],
+                "flights": row[1],
+                "avg_capacity": row[2],
+                "total_capacity": row[3],
+                "avg_price": row[4],
+            }
+            for row in res
+        ],
+    }
+
+def _catalog_routes(qs):
+    days = _days(qs, 'days', 7)
+    top = _top(qs, 'top', 10)
+    currency_clause, currency, invalid_currency = _currency_filter_clause(qs)
+    q = f"""
+    SELECT
+        json_extract_scalar(payload_json, '$.origen') AS origen,
+        json_extract_scalar(payload_json, '$.destino') AS destino,
+        COUNT(*) flights,
+        AVG(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)) avg_price,
+        MIN(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)) min_price,
+        MAX(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)) max_price,
+        AVG(TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE)) avg_capacity
+    FROM {CURATED_TABLE}
+    WHERE type='catalogo'
+      AND from_iso8601_timestamp(json_extract_scalar(payload_json, '$.despegue')) BETWEEN current_timestamp AND date_add('day', {days}, current_timestamp)
+      {currency_clause}
+    GROUP BY origen, destino
+    ORDER BY flights DESC
+    LIMIT {top}
+    """
+    res = _exec(q)
+    return {
+        "period_days": days,
+        "top": top,
+        "currency": currency,
+        "invalid_currency": invalid_currency,
+        "routes": [
+            {
+                "origin": row[0],
+                "destination": row[1],
+                "flights": row[2],
+                "avg_price": row[3],
+                "min_price": row[4],
+                "max_price": row[5],
+                "avg_capacity": row[6],
+            }
+            for row in res
+        ],
+    }
+
 # ---------- NUEVOS KPIs ----------
 
 def _funnel(qs):
@@ -325,7 +550,7 @@ def _funnel(qs):
     q = f"""
     WITH searches AS (
       SELECT COUNT(*) c FROM {CURATED_TABLE}
-      WHERE type='busqueda_realizada'
+      WHERE type = 'search_metric'
         AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
     ),
     reserves AS (
@@ -352,11 +577,11 @@ def _funnel(qs):
 def _avg_fare(qs):
     days = _days(qs, 'days', 7)
     q = f"""
-    SELECT AVG(CAST(precio AS DOUBLE))
+    SELECT AVG(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE))
     FROM {CURATED_TABLE}
     WHERE type='reserva_creada'
       AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-      AND precio IS NOT NULL
+      AND json_extract_scalar(payload_json, '$.precio') IS NOT NULL
     """
     r = _exec(q)
     return {"period_days":days,"avg_fare": (r[0][0] if r else None)}
@@ -365,7 +590,8 @@ def _revenue_monthly(qs):
     months = _days(qs, 'months', 6)
     q = f"""
     SELECT date_format(from_iso8601_timestamp(ts), '%Y-%m') ym,
-           SUM(CAST(amount AS DOUBLE)) revenue, COUNT(*) payments
+           SUM(TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)) revenue,
+           COUNT(*) payments
     FROM {CURATED_TABLE}
     WHERE type='pago_aprobado'
       AND from_iso8601_timestamp(ts) >= date_add('month', -{months}, current_date)
@@ -377,10 +603,13 @@ def _revenue_monthly(qs):
 def _ltv(qs):
     top = _top(qs, 'top', 10)
     q = f"""
-    SELECT userid, SUM(CAST(amount AS DOUBLE)) total_spend, COUNT(*) payments
+    SELECT json_extract_scalar(payload_json, '$.userId') AS userid,
+           SUM(TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)) total_spend,
+           COUNT(*) payments
     FROM {CURATED_TABLE}
-    WHERE type='pago_aprobado' AND userid IS NOT NULL
-    GROUP BY userid
+    WHERE type='pago_aprobado'
+      AND json_extract_scalar(payload_json, '$.userId') IS NOT NULL
+    GROUP BY json_extract_scalar(payload_json, '$.userId')
     ORDER BY total_spend DESC
     LIMIT {top}
     """
@@ -391,12 +620,14 @@ def _revenue_per_user(qs):
     days = _days(qs, 'days', 7)
     top = _top(qs, 'top', 10)
     q = f"""
-    SELECT userid, SUM(CAST(amount AS DOUBLE)) revenue, COUNT(*) payments
+    SELECT json_extract_scalar(payload_json, '$.userId') AS userid,
+           SUM(TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)) revenue,
+           COUNT(*) payments
     FROM {CURATED_TABLE}
     WHERE type='pago_aprobado'
-      AND userid IS NOT NULL
+      AND json_extract_scalar(payload_json, '$.userId') IS NOT NULL
       AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-    GROUP BY userid
+    GROUP BY json_extract_scalar(payload_json, '$.userId')
     ORDER BY revenue DESC
     LIMIT {top}
     """
@@ -408,12 +639,14 @@ def _popular_airlines(qs):
     days = _days(qs, 'days', 7)
     top = _top(qs, 'top', 5)
     q = f"""
-    SELECT airlineCode, COUNT(*) cnt, ROUND(AVG(CAST(precio AS DOUBLE)),2) avg_price
+    SELECT json_extract_scalar(payload_json, '$.airlineCode') AS airlineCode,
+           COUNT(*) cnt,
+           ROUND(AVG(TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)),2) avg_price
     FROM {CURATED_TABLE}
     WHERE type='reserva_creada'
       AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-      AND airlineCode IS NOT NULL
-    GROUP BY airlineCode
+      AND json_extract_scalar(payload_json, '$.airlineCode') IS NOT NULL
+    GROUP BY json_extract_scalar(payload_json, '$.airlineCode')
     ORDER BY cnt DESC
     LIMIT {top}
     """
@@ -425,12 +658,12 @@ def _user_origins(qs):
     days = _days(qs, 'days', 7)
     top = _top(qs, 'top', 10)
     q = f"""
-    SELECT pais, COUNT(*) cnt
+    SELECT json_extract_scalar(payload_json, '$.pais') AS pais, COUNT(*) cnt
     FROM {CURATED_TABLE}
     WHERE type='usuario_registrado'
       AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-      AND pais IS NOT NULL
-    GROUP BY pais
+      AND json_extract_scalar(payload_json, '$.pais') IS NOT NULL
+    GROUP BY json_extract_scalar(payload_json, '$.pais')
     ORDER BY cnt DESC
     LIMIT {top}
     """
@@ -495,56 +728,73 @@ def _anticipation(qs):
     q = f"""
     SELECT AVG(date_diff('day',
                from_iso8601_timestamp(ts),
-               from_iso8601_timestamp(concat(flightDate,'T00:00:00Z'))))
+               from_iso8601_timestamp(concat(json_extract_scalar(payload_json, '$.flightDate'),'T00:00:00Z'))))
     FROM {CURATED_TABLE}
     WHERE type='reserva_creada'
-      AND flightDate IS NOT NULL
+      AND json_extract_scalar(payload_json, '$.flightDate') IS NOT NULL
       AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
     """
     r = _exec(q)
     return {"period_days":days,"avg_anticipation_days": (r[0][0] if r else None)}
 
 def _time_to_complete(qs):
-    # tiempo (min) entre búsqueda → reserva → pago (cuando hay linkage por searchId/reservaId)
+    # tiempo (min) entre búsqueda → reserva → pago usando eventos search_metric y userId como vínculo
     days = _days(qs, 'days', 7)
     q = f"""
-    WITH reserve AS (
-      SELECT reservaid, searchid, MIN(from_iso8601_timestamp(ts)) r_ts
+    WITH searches AS (
+      SELECT json_extract_scalar(payload_json, '$.userId') AS userid,
+             from_iso8601_timestamp(ts) AS s_ts
+      FROM {CURATED_TABLE}
+      WHERE type='search_metric'
+        AND json_extract_scalar(payload_json, '$.userId') IS NOT NULL
+        AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
+    ),
+    reserve AS (
+      SELECT json_extract_scalar(payload_json, '$.reservaId') AS reservaid,
+             json_extract_scalar(payload_json, '$.userId') AS userid,
+             from_iso8601_timestamp(ts) AS r_ts
       FROM {CURATED_TABLE}
       WHERE type='reserva_creada'
+        AND json_extract_scalar(payload_json, '$.userId') IS NOT NULL
         AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-      GROUP BY reservaid, searchid
-    ),
-    search AS (
-      SELECT searchid, MIN(from_iso8601_timestamp(ts)) s_ts
-      FROM {CURATED_TABLE}
-      WHERE type='busqueda_realizada'
-        AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-      GROUP BY searchid
     ),
     pay AS (
-      SELECT reservaid, MIN(from_iso8601_timestamp(ts)) p_ts
+      SELECT json_extract_scalar(payload_json, '$.reservaId') AS reservaid,
+             from_iso8601_timestamp(ts) AS p_ts
       FROM {CURATED_TABLE}
       WHERE type='pago_aprobado'
         AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-      GROUP BY reservaid
+    ),
+    linked AS (
+      SELECT
+        r.reservaid,
+        r.userid,
+        r.r_ts,
+        p.p_ts,
+        (
+          SELECT max(s.s_ts)
+          FROM searches s
+          WHERE s.userid = r.userid
+            AND s.s_ts <= r.r_ts
+        ) AS s_ts
+      FROM reserve r
+      LEFT JOIN pay p ON r.reservaid = p.reservaid
     )
     SELECT
-      AVG(date_diff('minute', s.s_ts, r.r_ts)) as search_to_reserve_min,
-      AVG(date_diff('minute', r.r_ts, p.p_ts)) as reserve_to_pay_min,
-      AVG(date_diff('minute', s.s_ts, p.p_ts)) as search_to_pay_min
-    FROM reserve r
-    LEFT JOIN search s ON r.searchid = s.searchid
-    LEFT JOIN pay p ON r.reservaid = p.reservaid
+      AVG(date_diff('minute', s_ts, r_ts)) AS search_to_reserve_min,
+      AVG(CASE WHEN p_ts IS NOT NULL THEN date_diff('minute', r_ts, p_ts) END) AS reserve_to_pay_min,
+      AVG(CASE WHEN p_ts IS NOT NULL AND s_ts IS NOT NULL THEN date_diff('minute', s_ts, p_ts) END) AS search_to_pay_min
+    FROM linked
+    WHERE s_ts IS NOT NULL
     """
     r = _exec(q)
     if r:
         return {
-            "period_days":days,
+            "period_days": days,
             "avg_minutes": {
                 "search_to_reserve": r[0][0],
                 "reserve_to_pay": r[0][1],
                 "search_to_pay": r[0][2]
             }
         }
-    return {"period_days":days,"avg_minutes": {}}
+    return {"period_days": days, "avg_minutes": {}}

@@ -15,6 +15,8 @@
 ### tp-ingest-events (`lambdas/ingest/tp-ingest-events.py`)
 - **Objetivo**: actuar como endpoint de entrada único para todos los eventos operativos.
 - **Entrada**: JSON con campos mínimos `type` y `ts`; soporta distintos tipos (`reserva_creada`, `vuelo_cancelado`, `pago_rechazado`, `usuario_registrado`, etc.).
+  - Compatibilidad con eventos `SearchMetric` que pueden enviar `timestamp`; se traduce automáticamente a `ts` y se asume `type = search_metric` si no se especifica.
+  - Soporta eventos `catalogo` (inventario de vuelos) que derivan `ts` desde `despegue` si no viene informado y completan el tipo automáticamente cuando se detecta la estructura.
 - **Validaciones clave**:
   - Presencia de campos requeridos globales y opcionales por tipo.
   - Normalización de `ts` a ISO 8601 en UTC (`...Z`).
@@ -27,7 +29,7 @@
 - **Disparador**: eventos de S3 que notifican nuevos archivos crudos.
 - **Validaciones**:
   - Presencia de `type`, `ts`, `eventId`.
-  - Esquemas específicos por tipo (campos requeridos/opcionales, coerción de tipos, constraints de negocio).
+  - Esquemas específicos por tipo (campos requeridos/opcionales, coerción de tipos, constraints de negocio), incluyendo los eventos `search_metric` y `catalogo`.
   - Detección de payloads corruptos o tipos no reconocidos (genera *warnings*).
 - **Salida**:
   - Eventos válidos → bucket `CURATED_BUCKET` en formato Parquet (fallback JSON) y particionados igual que su origen; agrega bloque `validation`.
@@ -41,8 +43,8 @@
 - **Entrada**: solicitudes HTTP GET (principalmente) mapeadas por API Gateway hacia Athena.
 - **Comportamiento**:
   - Valida optionalmente un API Key (`API_KEY`) además del plan de uso del API Gateway.
-  - Ejecuta consultas Athena sobre la tabla curada (`CURATED_TABLE`) y devuelve JSON normalizado.
-  - Calcula métricas de funnel, revenue, tasas de validación/pago/cancelación, distribución de reservas por hora, origen de usuarios, LTV, entre otras.
+  - Ejecuta consultas Athena sobre la tabla curada (`CURATED_TABLE`) y devuelve JSON normalizado (incluye métricas basadas en los eventos `search_metric` y `catalogo`).
+  - Calcula métricas de funnel, revenue, tasas de validación/pago/cancelación, distribución de reservas por hora, origen de usuarios, LTV, salud del inventario de vuelos (status operacionales, disponibilidad por aerolínea/ruta/tipo de avión), entre otras.
 - **Salida**: respuestas HTTP con cabeceras CORS, status 200 y estructura JSON lista para frontends.
 - **Resiliencia**: reintenta el estado de ejecución de Athena hasta 30 segundos; captura fallos y devuelve 500 con contexto.
 
@@ -63,5 +65,4 @@
 
 ## Endpoints disponibles en la capa de KPIs
 - `/analytics/health`, `/analytics/summary`, `/analytics/recent`, `/analytics/daily`, `/analytics/events`, `/analytics/events-by-type`, `/analytics/validation-stats`, `/analytics/revenue`
-- Nuevos KPIs: `/analytics/funnel`, `/analytics/avg-fare`, `/analytics/revenue-monthly`, `/analytics/ltv`, `/analytics/revenue-per-user`, `/analytics/popular-airlines`, `/analytics/user-origins`, `/analytics/booking-hours`, `/analytics/payment-success`, `/analytics/cancellation-rate`, `/analytics/anticipation`, `/analytics/time-to-complete`
-
+- Nuevos KPIs: `/analytics/funnel`, `/analytics/avg-fare`, `/analytics/revenue-monthly`, `/analytics/ltv`, `/analytics/revenue-per-user`, `/analytics/popular-airlines`, `/analytics/user-origins`, `/analytics/booking-hours`, `/analytics/payment-success`, `/analytics/cancellation-rate`, `/analytics/anticipation`, `/analytics/time-to-complete`, `/analytics/search-metrics` (basado en eventos `search_metric`), `/analytics/catalog/airline-summary`, `/analytics/catalog/status`, `/analytics/catalog/aircraft`, `/analytics/catalog/routes` (insights del evento `catalogo`)
