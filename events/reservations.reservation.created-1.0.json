@@ -1,0 +1,16 @@
+{
+  "$id": "https://example.com/schemas/reservations.reservation.created-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reservations.reservation.created v1.0",
+  "type": "object",
+  "required": ["reservationId","userId","flightId","amount","currency","reservedAt"],
+  "properties": {
+    "reservationId": { "type": "string" },
+    "userId": { "type": "string" },
+    "flightId": { "type": "string" },
+    "amount": { "type": "number" },
+    "currency": { "type": "string","minLength":3,"maxLength":3 },
+    "reservedAt": { "type": "string","format":"date-time" }
+  },
+  "additionalProperties": false
+}

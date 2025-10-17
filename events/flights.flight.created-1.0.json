@@ -1,0 +1,20 @@
+{
+  "$id": "https://example.com/schemas/flights.flight.created-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "flights.flight.created v1.0",
+  "type": "object",
+  "required": ["flightId","flightNumber","origin","destination","aircraftModel","departureAt","arrivalAt","status","price","currency"],
+  "properties": {
+    "flightId": { "type": "string" },
+    "flightNumber": { "type": "string" },
+    "origin": { "type": "string" },
+    "destination": { "type": "string" },
+    "aircraftModel": { "type": "string" },
+    "departureAt": { "type": "string","format":"date-time" },
+    "arrivalAt": { "type": "string","format":"date-time" },
+    "status": { "type": "string" },
+    "price": { "type": "number" },
+    "currency": { "type": "string","minLength":3,"maxLength":3 }
+  },
+  "additionalProperties": false
+}

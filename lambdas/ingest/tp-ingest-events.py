@@ -4,7 +4,7 @@ import uuid
 import boto3
 import logging
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
 
 # Configure logging
 logger = logging.getLogger()
@@ -49,6 +49,33 @@ EVENT_SCHEMAS = {
         "capacidadAvion",
         "tipoAvion",
     ],
+    "search.cart.item.added": ["userId", "flightId", "addedAt"],
+    "search.search.performed": ["searchId", "userId", "origin", "destination", "category", "performedAt"],
+    "reservations.reservation.created": ["reservationId", "userId", "flightId", "amount", "currency", "reservedAt"],
+    "reservations.reservation.updated": ["reservationId", "newStatus"],
+    "flights.flight.created": ["flightId", "flightNumber", "origin", "destination", "aircraftModel", "departureAt", "arrivalAt", "status", "price", "currency"],
+    "flights.flight.updated": ["flightId", "newStatus"],
+    "flights.aircraft_or_airline.updated": ["airlineBrand", "aircraftId", "capacity"],
+    "payments.payment.status_updated": ["paymentId", "reservationId", "userId", "status", "amount", "currency", "updatedAt"],
+    "users.user.created": ["userId", "nationalityOrOrigin", "roles", "createdAt"],
+}
+
+TS_FIELD_MAP: Dict[str, Union[str, List[str]]] = {
+    "search_metric": ["timestamp", "ts"],
+    "catalogo": ["despegue", "ts"],
+    "search.cart.item.added": ["addedAt"],
+    "search.search.performed": ["performedAt"],
+    "reservations.reservation.created": ["reservedAt"],
+    "reservations.reservation.updated": ["reservationDate", "flightDate"],
+    "flights.flight.created": ["departureAt"],
+    "flights.flight.updated": ["newDepartureAt", "newArrivalAt"],
+    "flights.aircraft_or_airline.updated": [],
+    "payments.payment.status_updated": ["updatedAt"],
+    "users.user.created": ["createdAt"],
+    "reserva_creada": ["ts"],
+    "pago_rechazado": ["ts"],
+    "usuario_registrado": ["ts"],
+    "vuelo_cancelado": ["ts"],
 }
 
 def lambda_handler(event, context):
@@ -61,18 +88,14 @@ def lambda_handler(event, context):
         if isinstance(body, dict) and "error" in body:
             return _response(400, body)
 
-        # Compatibilidad con eventos SearchMetric/Catálogo que pueden omitir `ts` o `type`
+        # Compatibilidad con eventos externos que pueden omitir `ts` o `type`
         if isinstance(body, dict):
-            if "ts" not in body:
-                if body.get("timestamp"):
-                    body["ts"] = body["timestamp"]
-                elif body.get("despegue"):
-                    body["ts"] = body["despegue"]
             if "type" not in body:
                 if _looks_like_search_metric(body):
                     body["type"] = "search_metric"
                 elif _looks_like_catalog_event(body):
                     body["type"] = "catalogo"
+            _ensure_ts_field(body)
         
         # Validación mínima
         missing = [f for f in REQUIRED_FIELDS if f not in body]
@@ -241,6 +264,32 @@ def _looks_like_search_metric(body: Dict[str, Any]) -> bool:
         "userId",
     }
     return required.issubset(set(body.keys()))
+
+def _ensure_ts_field(body: Dict[str, Any]) -> None:
+    """Populate ts from known fields when missing"""
+    if "ts" in body:
+        return
+    event_type = body.get("type")
+    if not event_type:
+        return
+
+    mapping = TS_FIELD_MAP.get(event_type)
+    candidates: List[str] = []
+    if isinstance(mapping, str):
+        candidates = [mapping]
+    elif isinstance(mapping, list):
+        candidates = mapping
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        value = body.get(candidate)
+        if value:
+            body["ts"] = str(value)
+            return
+
+    # Fallback: use ingestion time to avoid rejection (ensures downstream handling)
+    body["ts"] = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
 
 def _looks_like_catalog_event(body: Dict[str, Any]) -> bool:
     required = {

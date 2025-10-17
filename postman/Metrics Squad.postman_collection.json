@@ -1,0 +1,1558 @@
+{
+  "info": {
+    "_postman_id": "76574e1c-c4a0-41e7-9714-9239db9dede9",
+    "name": "Metrics Squad",
+    "description": "Colecci\u00f3n para probar la ingesta de eventos y los endpoints de anal\u00edtica de Metrics Squad.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "29521502"
+  },
+  "item": [
+    {
+      "name": "Mocked Events (Runner)",
+      "description": "Requests parametrizados para cargar lotes de eventos con archivos CSV ubicados en `postman/data`.",
+      "item": [
+        {
+          "name": "Mock - search.search.performed",
+          "description": "Usar `postman/data/search_search_performed.csv` (20 filas de b\u00fasquedas).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"search.search.performed\",\n  \"searchId\": \"{{searchId}}\",\n  \"userId\": \"{{userId}}\",\n  \"origin\": \"{{origin}}\",\n  \"destination\": \"{{destination}}\",\n  \"departDate\": \"{{departDate}}\",\n  \"returnDate\": \"{{returnDate}}\",\n  \"paxCount\": {{paxCount}},\n  \"category\": \"{{category}}\",\n  \"performedAt\": \"{{performedAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - search_metric",
+          "description": "Usar `postman/data/search_metric.csv` (12 m\u00e9tricas agregadas).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"search_metric\",\n  \"flightsFrom\": \"{{flightsFrom}}\",\n  \"flightsTo\": \"{{flightsTo}}\",\n  \"dateFrom\": \"{{dateFrom}}\",\n  \"dateTo\": \"{{dateTo}}\",\n  \"resultsCount\": {{resultsCount}},\n  \"timestamp\": \"{{timestamp}}\",\n  \"userId\": \"{{userId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - search.cart.item.added",
+          "description": "Usar `postman/data/search_cart_item_added.csv` (15 vuelos en carrito).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"search.cart.item.added\",\n  \"userId\": \"{{userId}}\",\n  \"flightId\": \"{{flightId}}\",\n  \"addedAt\": \"{{addedAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - users.user.created",
+          "description": "Usar `postman/data/users_user_created.csv` (8 altas de usuario).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"users.user.created\",\n  \"userId\": \"{{userId}}\",\n  \"nationalityOrOrigin\": \"{{nationalityOrOrigin}}\",\n  \"roles\": {{roles}},\n  \"createdAt\": \"{{createdAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - flights.flight.created",
+          "description": "Usar `postman/data/flights_flight_created.csv` (10 vuelos publicados).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"flights.flight.created\",\n  \"flightId\": \"{{flightId}}\",\n  \"flightNumber\": \"{{flightNumber}}\",\n  \"origin\": \"{{origin}}\",\n  \"destination\": \"{{destination}}\",\n  \"aircraftModel\": \"{{aircraftModel}}\",\n  \"departureAt\": \"{{departureAt}}\",\n  \"arrivalAt\": \"{{arrivalAt}}\",\n  \"status\": \"{{status}}\",\n  \"price\": {{price}},\n  \"currency\": \"{{currency}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - catalogo",
+          "description": "Usar `postman/data/catalogo.csv` (12 registros de cat\u00e1logo).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"catalogo\",\n  \"id\": {{id}},\n  \"id_vuelo\": \"{{id_vuelo}}\",\n  \"aerolinea\": \"{{aerolinea}}\",\n  \"origen\": \"{{origen}}\",\n  \"destino\": \"{{destino}}\",\n  \"precio\": {{precio}},\n  \"moneda\": \"{{moneda}}\",\n  \"despegue\": \"{{despegue}}\",\n  \"aterrizaje_local\": \"{{aterrizaje_local}}\",\n  \"estado_vuelo\": \"{{estado_vuelo}}\",\n  \"capacidadAvion\": {{capacidadAvion}},\n  \"tipoAvion\": \"{{tipoAvion}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - reservations.reservation.created",
+          "description": "Usar `postman/data/reservations_reservation_created.csv` (18 reservas nuevas).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"reservations.reservation.created\",\n  \"reservationId\": \"{{reservationId}}\",\n  \"userId\": \"{{userId}}\",\n  \"flightId\": \"{{flightId}}\",\n  \"amount\": {{amount}},\n  \"currency\": \"{{currency}}\",\n  \"reservedAt\": \"{{reservedAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - payments.payment.status_updated",
+          "description": "Usar `postman/data/payments_payment_status_updated.csv` (15 eventos de pago).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"payments.payment.status_updated\",\n  \"paymentId\": \"{{paymentId}}\",\n  \"reservationId\": \"{{reservationId}}\",\n  \"userId\": \"{{userId}}\",\n  \"status\": \"{{status}}\",\n  \"amount\": {{amount}},\n  \"currency\": \"{{currency}}\",\n  \"updatedAt\": \"{{updatedAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - reservations.reservation.updated",
+          "description": "Usar `postman/data/reservations_reservation_updated.csv` (10 cambios de estado).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"reservations.reservation.updated\",\n  \"reservationId\": \"{{reservationId}}\",\n  \"newStatus\": \"{{newStatus}}\",\n  \"reservationDate\": \"{{reservationDate}}\",\n  \"flightDate\": \"{{flightDate}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - flights.flight.updated",
+          "description": "Usar `postman/data/flights_flight_updated.csv` (8 ajustes operativos).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"flights.flight.updated\",\n  \"flightId\": \"{{flightId}}\",\n  \"newStatus\": \"{{newStatus}}\",\n  \"newDepartureAt\": \"{{newDepartureAt}}\",\n  \"newArrivalAt\": \"{{newArrivalAt}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mock - flights.aircraft_or_airline.updated",
+          "description": "Usar `postman/data/flights_aircraft_or_airline_updated.csv` (5 registros de flota).",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"flights.aircraft_or_airline.updated\",\n  \"airlineBrand\": \"{{airlineBrand}}\",\n  \"aircraftId\": \"{{aircraftId}}\",\n  \"capacity\": {{capacity}},\n  \"seatMapId\": \"{{seatMapId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ingestion",
+      "item": [
+        {
+          "name": "search.search.performed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"search.search.performed\",\n  \"searchId\": \"SCH-{{$randomInt}}\",\n  \"userId\": \"user-123\",\n  \"origin\": \"EZE\",\n  \"destination\": \"MIA\",\n  \"departDate\": \"2025-10-25\",\n  \"returnDate\": \"2025-11-03\",\n  \"paxCount\": 2,\n  \"category\": \"economy\",\n  \"performedAt\": \"{{$isoTimestamp}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "search.cart.item.added",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"search.cart.item.added\",\n  \"userId\": \"user-123\",\n  \"flightId\": \"AR1302\",\n  \"addedAt\": \"{{$isoTimestamp}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "reservations.reservation.created",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"reservations.reservation.created\",\n  \"reservationId\": \"RSV-{{$randomInt}}\",\n  \"userId\": \"user-123\",\n  \"flightId\": \"AR1302\",\n  \"amount\": 750.5,\n  \"currency\": \"USD\",\n  \"reservedAt\": \"{{$isoTimestamp}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "reservations.reservation.updated",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"reservations.reservation.updated\",\n  \"reservationId\": \"RSV-{{$randomInt}}\",\n  \"newStatus\": \"CANCELLED\",\n  \"reservationDate\": \"{{$isoTimestamp}}\",\n  \"flightDate\": \"2025-10-25T12:30:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "payments.payment.status_updated",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"payments.payment.status_updated\",\n  \"paymentId\": \"PAY-{{$randomInt}}\",\n  \"reservationId\": \"RSV-123\",\n  \"userId\": \"user-123\",\n  \"status\": \"PAID\",\n  \"amount\": 750.5,\n  \"currency\": \"USD\",\n  \"updatedAt\": \"{{$isoTimestamp}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "flights.flight.created",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"flights.flight.created\",\n  \"flightId\": \"AR1302\",\n  \"flightNumber\": \"AR1302\",\n  \"origin\": \"EZE\",\n  \"destination\": \"MIA\",\n  \"aircraftModel\": \"B737\",\n  \"departureAt\": \"2025-10-25T12:30:00Z\",\n  \"arrivalAt\": \"2025-10-25T20:10:00Z\",\n  \"status\": \"En hora\",\n  \"price\": 750.5,\n  \"currency\": \"USD\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "flights.flight.updated",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"flights.flight.updated\",\n  \"flightId\": \"AR1302\",\n  \"newStatus\": \"DEMORADO\",\n  \"newDepartureAt\": \"2025-10-25T13:15:00Z\",\n  \"newArrivalAt\": \"2025-10-25T21:05:00Z\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "flights.aircraft_or_airline.updated",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"flights.aircraft_or_airline.updated\",\n  \"airlineBrand\": \"Aerolineas Argentinas\",\n  \"aircraftId\": \"B737\",\n  \"capacity\": 180,\n  \"seatMapId\": \"seatmap-01\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "users.user.created",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"users.user.created\",\n  \"userId\": \"user-{{$randomInt}}\",\n  \"nationalityOrOrigin\": \"AR\",\n  \"roles\": [\"traveler\", \"newsletter\"],\n  \"createdAt\": \"{{$isoTimestamp}}\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "catalogo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"catalogo\",\n  \"id\": 1,\n  \"id_vuelo\": \"AR1302\",\n  \"aerolinea\": \"Aerolineas Argentinas\",\n  \"origen\": \"EZE\",\n  \"destino\": \"MIA\",\n  \"precio\": 750.5,\n  \"moneda\": \"USD\",\n  \"despegue\": \"{{$isoTimestamp}}\",\n  \"aterrizaje_local\": \"2025-10-25T20:10:00-03:00\",\n  \"estado_vuelo\": \"En hora\",\n  \"capacidadAvion\": 180,\n  \"tipoAvion\": \"B737\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "search_metric",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{ingest_api_key}}",
+                "description": "API Key de la capa de ingesta"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"search_metric\",\n  \"flightsFrom\": \"EZE\",\n  \"flightsTo\": \"MIA\",\n  \"dateFrom\": \"2025-10-25\",\n  \"dateTo\": \"2025-11-03\",\n  \"resultsCount\": 42,\n  \"timestamp\": \"{{$isoTimestamp}}\",\n  \"userId\": \"user-123\"\n}"
+            },
+            "url": {
+              "raw": "{{ingest_base}}/events",
+              "host": [
+                "{{ingest_base}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          },
+          "response": []
+        }
+      ],
+      "description": "Eventos que se env\u00edan a la Lambda `tp-ingest-events`.",
+      "auth": {
+        "type": "apikey",
+        "apikey": [
+          {
+            "key": "value",
+            "value": "{{ingest_api_key}}",
+            "type": "string"
+          },
+          {
+            "key": "key",
+            "value": "x-api-key",
+            "type": "string"
+          }
+        ]
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {},
+            "exec": [
+              ""
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {},
+            "exec": [
+              ""
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics - General",
+      "item": [
+        {
+          "name": "Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}",
+                "description": "Completar si la API requiere API Key"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/summary",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "summary"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Recent Activity",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/recent?limit=10&hours=24",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "recent"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "hours",
+                  "value": "24"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Events (last 7 days)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/events?days=7&limit=50",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "events"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Events by Type",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/events-by-type?days=30",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "events-by-type"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Validation Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/validation-stats?days=7",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "validation-stats"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Analytics - Funnel & Revenue",
+      "item": [
+        {
+          "name": "Funnel",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/funnel?days=14",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "funnel"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "14"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Average Fare",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/avg-fare?days=30",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "avg-fare"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Revenue (legacy + canonical)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/revenue?days=30",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "revenue"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Revenue per User",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/revenue-per-user?days=30&top=15",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "revenue-per-user"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                },
+                {
+                  "key": "top",
+                  "value": "15"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LTV Top Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/ltv?top=20",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "ltv"
+              ],
+              "query": [
+                {
+                  "key": "top",
+                  "value": "20"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Payment Success",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/payment-success?days=14",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "payment-success"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "14"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Payments Status (canonical)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/payments/status?days=14",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "payments",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "14"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Analytics - Catalog & Flights",
+      "item": [
+        {
+          "name": "Airline Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/catalog/airline-summary?days=30&currency=USD",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "catalog",
+                "airline-summary"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                },
+                {
+                  "key": "currency",
+                  "value": "USD"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Status Breakdown",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/catalog/status?days=30",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "catalog",
+                "status"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Aircraft Inventory",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/catalog/aircraft?days=30",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "catalog",
+                "aircraft"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Top Routes (Catalog)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/catalog/routes?days=60&top=20&currency=USD",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "catalog",
+                "routes"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "60"
+                },
+                {
+                  "key": "top",
+                  "value": "20"
+                },
+                {
+                  "key": "currency",
+                  "value": "USD"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Flight Updates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/flights/updates?days=14",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "flights",
+                "updates"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "14"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Aircraft Updates",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/flights/aircraft?days=30",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "flights",
+                "aircraft"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Analytics - UX & Usuarios",
+      "item": [
+        {
+          "name": "Search Metrics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/search-metrics?days=14&top=10",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "search-metrics"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "14"
+                },
+                {
+                  "key": "top",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search Cart Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/search/cart?days=7&top=10",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "search",
+                "cart"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7"
+                },
+                {
+                  "key": "top",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "User Origins",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/user-origins?days=30&top=10",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "user-origins"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                },
+                {
+                  "key": "top",
+                  "value": "10"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Time To Complete (Search \u2192 Pay)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/time-to-complete?days=14",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "time-to-complete"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "14"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Booking Hours",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/booking-hours?days=7",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "booking-hours"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "7"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancellation Rate",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{analytics_api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/cancellation-rate?days=30",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "cancellation-rate"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "30"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Anticipation (Days to Flight)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{api_base}}/analytics/anticipation?days=90",
+              "host": [
+                "{{api_base}}"
+              ],
+              "path": [
+                "analytics",
+                "anticipation"
+              ],
+              "query": [
+                {
+                  "key": "days",
+                  "value": "90"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Variables & Runner Setup",
+      "description": "Gu\u00eda r\u00e1pida de variables y orden recomendado para ejecutar el runner.",
+      "item": [
+        {
+          "name": "README - Variables",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "https://postman-echo.com/get?note=metrics-squad-variables",
+              "host": [
+                "postman-echo",
+                "com"
+              ],
+              "path": [
+                "get"
+              ],
+              "query": [
+                {
+                  "key": "note",
+                  "value": "metrics-squad-variables"
+                }
+              ]
+            },
+            "description": "Variables necesarias:\n- {{ingest_base}}: endpoint base de ingesta (sin `/events`).\n- {{ingest_api_key}}: API Key de ingesta (dejar vac\u00edo si no se usa).\n- {{api_base}}: endpoint base de anal\u00edtica.\n- {{analytics_api_key}}: API Key de anal\u00edtica.\n\nRunner mock (orden recomendado):\n1) search.search.performed\n2) search_metric\n3) search.cart.item.added\n4) users.user.created\n5) flights.flight.created\n6) catalogo\n7) reservations.reservation.created\n8) payments.payment.status_updated\n9) reservations.reservation.updated\n10) flights.flight.updated\n11) flights.aircraft_or_airline.updated\n"
+          }
+        }
+      ]
+    }
+  ]
+}

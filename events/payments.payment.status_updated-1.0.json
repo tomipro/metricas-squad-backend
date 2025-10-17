@@ -1,0 +1,17 @@
+{
+  "$id": "https://example.com/schemas/payments.payment.status_updated-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "payments.payment.status_updated v1.0",
+  "type": "object",
+  "required": ["paymentId","reservationId","userId","status","amount","currency","updatedAt"],
+  "properties": {
+    "paymentId": { "type": "string" },
+    "reservationId": { "type": "string" },
+    "userId": { "type": "string" },
+    "status": { "type": "string","enum":["PAID","FAILED","PENDING"] },
+    "amount": { "type": "number" },
+    "currency": { "type": "string","minLength":3,"maxLength":3 },
+    "updatedAt": { "type": "string","format":"date-time" }
+  },
+  "additionalProperties": false
+}

@@ -14,9 +14,9 @@
 
 ### tp-ingest-events (`lambdas/ingest/tp-ingest-events.py`)
 - **Objetivo**: actuar como endpoint de entrada único para todos los eventos operativos.
-- **Entrada**: JSON con campos mínimos `type` y `ts`; soporta distintos tipos (`reserva_creada`, `vuelo_cancelado`, `pago_rechazado`, `usuario_registrado`, etc.).
-  - Compatibilidad con eventos `SearchMetric` que pueden enviar `timestamp`; se traduce automáticamente a `ts` y se asume `type = search_metric` si no se especifica.
-  - Soporta eventos `catalogo` (inventario de vuelos) que derivan `ts` desde `despegue` si no viene informado y completan el tipo automáticamente cuando se detecta la estructura.
+- **Entrada**: JSON con campos mínimos `type` y `ts`; soporta los eventos históricos (`reserva_creada`, `pago_aprobado`, etc.) y los nuevos formatos canonizados (`search.search.performed`, `search.cart.item.added`, `reservations.reservation.created`, `flights.flight.created`, `payments.payment.status_updated`, `users.user.created`, etc.).
+  - Cuando el payload trae marcas de tiempo específicas (`performedAt`, `reservedAt`, `departureAt`, `updatedAt`, `createdAt`, etc.) la Lambda deriva automáticamente el `ts` para mantener consistencia temporal.
+  - Se mantiene compatibilidad con eventos `search_metric` y `catalogo`, autocompletando `type` y `ts` cuando la estructura coincide con esos payloads.
 - **Validaciones clave**:
   - Presencia de campos requeridos globales y opcionales por tipo.
   - Normalización de `ts` a ISO 8601 en UTC (`...Z`).
@@ -29,24 +29,39 @@
 - **Disparador**: eventos de S3 que notifican nuevos archivos crudos.
 - **Validaciones**:
   - Presencia de `type`, `ts`, `eventId`.
-  - Esquemas específicos por tipo (campos requeridos/opcionales, coerción de tipos, constraints de negocio), incluyendo los eventos `search_metric` y `catalogo`.
-  - Detección de payloads corruptos o tipos no reconocidos (genera *warnings*).
+  - Esquemas específicos por tipo (campos requeridos/opcionales, coerción de tipos, constraints de negocio) para todos los eventos de negocio: búsquedas (`search.search.performed`, `search.cart.item.added`), reservas (`reservations.reservation.created/updated`), vuelos (`flights.flight.created/updated`, `flights.aircraft_or_airline.updated`), pagos (`payments.payment.status_updated`), usuarios (`users.user.created`), catálogo y métricas históricas.
+  - Normalización de timestamps, `currency` en ISO, enumeraciones (`status`, `newStatus`) y advertencias cuando se detectan anomalías (por ejemplo, `arrivalAt` anterior al `departureAt`).
 - **Salida**:
-  - Eventos válidos → bucket `CURATED_BUCKET` en formato Parquet (fallback JSON) y particionados igual que su origen; agrega bloque `validation`.
+  - Eventos válidos → bucket `CURATED_BUCKET` en un formato homogéneo: columnas fijas (`eventType`, `ts`, `eventId`, `payload_json`, `validation_json`, etc.) para simplificar los crawlers y las consultas de Athena.
   - Eventos inválidos → bucket `INVALID_BUCKET` como JSON con detalle de errores y advertencias.
 - **Notas**:
-  - Remueve `type` del cuerpo antes de escribir al bucket curado para evitar conflictos con la partición.
-  - Añade metadatos en S3 para facilitar búsquedas posteriores (`validation-status`, `event-type`, etc.).
+  - El esquema unificado evita columnas duplicadas con la partición `type=...` y mantiene la trazabilidad (`eventType`, `metadata_json`, `validation_json`, `payload_json`).
+  - Al agregar nuevos tipos basta con ampliar el diccionario `EVENT_SCHEMAS` y la sección de normalización.
 
 ### tp-kpi-backend (`lambdas/kpis/tp-kpi-backend.py`)
 - **Objetivo**: servir KPIs y datos analíticos a dashboards o clientes externos.
 - **Entrada**: solicitudes HTTP GET (principalmente) mapeadas por API Gateway hacia Athena.
 - **Comportamiento**:
   - Valida optionalmente un API Key (`API_KEY`) además del plan de uso del API Gateway.
-  - Ejecuta consultas Athena sobre la tabla curada (`CURATED_TABLE`) y devuelve JSON normalizado (incluye métricas basadas en los eventos `search_metric` y `catalogo`).
-  - Calcula métricas de funnel, revenue, tasas de validación/pago/cancelación, distribución de reservas por hora, origen de usuarios, LTV, salud del inventario de vuelos (status operacionales, disponibilidad por aerolínea/ruta/tipo de avión), entre otras.
+  - Ejecuta consultas Athena sobre la tabla curada (`CURATED_TABLE`) y devuelve JSON normalizado. Todas las consultas trabajan sobre `payload_json`/`validation_json`, por lo que nuevos campos quedan disponibles sin cambiar el esquema físico.
+  - Entrega métricas para todo el dominio: búsqueda (`search.search.performed`, `search.cart.item.added`), catálogo/vuelos (`catalogo`, `flights.flight.created/updated`, `flights.aircraft_or_airline.updated`), reservas (`reservations.reservation.created/updated`), pagos (`payments.payment.status_updated`), usuarios (`users.user.created`) y los eventos legacy.
 - **Salida**: respuestas HTTP con cabeceras CORS, status 200 y estructura JSON lista para frontends.
 - **Resiliencia**: reintenta el estado de ejecución de Athena hasta 30 segundos; captura fallos y devuelve 500 con contexto.
+
+### Eventos soportados
+
+| Dominio | Tipo (`type`) | Campos clave normalizados |
+| ------- | ------------- | ------------------------ |
+| Búsquedas | `search.search.performed` | `performedAt`, `origin`, `destination`, `departDate`, `returnDate`, `paxCount`, `category` |
+| Búsquedas | `search.cart.item.added` | `flightId`, `userId`, `addedAt` |
+| Reservas | `reservations.reservation.created` | `reservationId`, `flightId`, `amount`, `currency`, `reservedAt` |
+| Reservas | `reservations.reservation.updated` | `reservationId`, `newStatus`, `reservationDate`, `flightDate` |
+| Pagos | `payments.payment.status_updated` | `paymentId`, `reservationId`, `userId`, `status`, `amount`, `currency`, `updatedAt` |
+| Vuelos | `flights.flight.created` | `flightNumber`, `origin`, `destination`, `aircraftModel`, `departureAt`, `arrivalAt`, `status`, `price`, `currency` |
+| Vuelos | `flights.flight.updated` | `flightId`, `newStatus`, `newDepartureAt`, `newArrivalAt` |
+| Vuelos | `flights.aircraft_or_airline.updated` | `aircraftId`, `airlineBrand`, `capacity`, `seatMapId` |
+| Usuarios | `users.user.created` | `userId`, `nationalityOrOrigin`, `roles`, `createdAt` |
+| Legacy / métricas | `search_metric`, `catalogo`, `reserva_creada`, `pago_aprobado`, `pago_rechazado`, etc. | Se mantienen para compatibilidad y se consultan junto a los eventos nuevos. |
 
 ## Variables de entorno relevantes
 
@@ -65,4 +80,12 @@
 
 ## Endpoints disponibles en la capa de KPIs
 - `/analytics/health`, `/analytics/summary`, `/analytics/recent`, `/analytics/daily`, `/analytics/events`, `/analytics/events-by-type`, `/analytics/validation-stats`, `/analytics/revenue`
-- Nuevos KPIs: `/analytics/funnel`, `/analytics/avg-fare`, `/analytics/revenue-monthly`, `/analytics/ltv`, `/analytics/revenue-per-user`, `/analytics/popular-airlines`, `/analytics/user-origins`, `/analytics/booking-hours`, `/analytics/payment-success`, `/analytics/cancellation-rate`, `/analytics/anticipation`, `/analytics/time-to-complete`, `/analytics/search-metrics` (basado en eventos `search_metric`), `/analytics/catalog/airline-summary`, `/analytics/catalog/status`, `/analytics/catalog/aircraft`, `/analytics/catalog/routes` (insights del evento `catalogo`)
+- Métricas de conversión y revenue: `/analytics/funnel`, `/analytics/avg-fare`, `/analytics/revenue-monthly`, `/analytics/ltv`, `/analytics/revenue-per-user`, `/analytics/payment-success`, `/analytics/time-to-complete`
+- Catálogo y vuelos: `/analytics/catalog/airline-summary`, `/analytics/catalog/status`, `/analytics/catalog/aircraft`, `/analytics/catalog/routes`, `/analytics/flights/updates`, `/analytics/flights/aircraft`
+- Búsquedas: `/analytics/search-metrics`, `/analytics/search/cart`
+- Reservas y usuarios: `/analytics/booking-hours`, `/analytics/cancellation-rate`, `/analytics/reservations/updates`, `/analytics/user-origins`, `/analytics/anticipation`
+- Pagos: `/analytics/payments/status`
+
+## Postman
+- Se incluye la colección `postman/metrics-squad.postman_collection.json` y el entorno `postman/metrics-squad.postman_environment.json` con ejemplos de ingesta de eventos y llamadas a todos los endpoints de analítica. Ajustá `ingest_base`, `ingest_api_key`, `api_base` y `analytics_api_key` antes de ejecutar.
+- Para ejecutar lotes mockeados desde el Runner importá la colección `postman/Metrics Squad.postman_collection.json`, seleccioná la carpeta **Mocked Events (Runner)** y usa los CSV de `postman/data/` siguiendo este orden sugerido: `search_search_performed` → `search_metric` → `search_cart_item_added` → `users_user_created` → `flights_flight_created` → `catalogo` → `reservations_reservation_created` → `payments_payment_status_updated` → `reservations_reservation_updated` → `flights_flight_updated` → `flights_aircraft_or_airline_updated`.

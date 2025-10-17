@@ -65,6 +65,13 @@ def _normalize_flight_status(value: str) -> Union[str, None]:
     normalized = FLIGHT_STATUS_CANONICAL.get(value.strip().lower())
     return normalized
 
+def _is_valid_datetime(value: str) -> bool:
+    try:
+        _ = _normalize_iso_utc(str(value))
+        return True
+    except Exception:
+        return False
+
 # ---------- Esquemas de Validación ----------
 EVENT_SCHEMAS = {
     # Reserva creada: agrego airlineCode/origin/destination/flightDate/searchId
@@ -235,6 +242,163 @@ EVENT_SCHEMAS = {
             "despegue": lambda x: bool(x),
             "aterrizaje_local": lambda x: bool(x),
             "capacidadAvion": lambda x: int(x) > 0
+        }
+    },
+
+    "search.cart.item.added": {
+        "required": ["userId", "flightId", "addedAt"],
+        "optional": [],
+        "types": {
+            "userId": str,
+            "flightId": str,
+            "addedAt": str
+        },
+        "constraints": {
+            "addedAt": lambda x: _is_valid_datetime(str(x))
+        }
+    },
+
+    "search.search.performed": {
+        "required": ["searchId", "userId", "origin", "destination", "category", "performedAt"],
+        "optional": ["departDate", "returnDate", "paxCount"],
+        "types": {
+            "searchId": str,
+            "userId": str,
+            "origin": str,
+            "destination": str,
+            "category": str,
+            "performedAt": str,
+            "departDate": str,
+            "returnDate": str,
+            "paxCount": int
+        },
+        "constraints": {
+            "performedAt": lambda x: _is_valid_datetime(str(x)),
+            "departDate": lambda x: _is_valid_date(str(x)) if x else True,
+            "returnDate": lambda x: _is_valid_date(str(x)) if x else True,
+            "paxCount": lambda x: int(x) >= 1 if x is not None else True
+        }
+    },
+
+    "reservations.reservation.created": {
+        "required": ["reservationId", "userId", "flightId", "amount", "currency", "reservedAt"],
+        "optional": [],
+        "types": {
+            "reservationId": str,
+            "userId": str,
+            "flightId": str,
+            "amount": (int, float),
+            "currency": str,
+            "reservedAt": str
+        },
+        "constraints": {
+            "amount": lambda x: float(x) > 0,
+            "currency": lambda x: _is_valid_currency(str(x).upper()),
+            "reservedAt": lambda x: _is_valid_datetime(str(x))
+        }
+    },
+
+    "reservations.reservation.updated": {
+        "required": ["reservationId", "newStatus"],
+        "optional": ["reservationDate", "flightDate"],
+        "types": {
+            "reservationId": str,
+            "newStatus": str,
+            "reservationDate": str,
+            "flightDate": str
+        },
+        "constraints": {
+            "reservationDate": lambda x: _is_valid_datetime(str(x)) if x else True,
+            "flightDate": lambda x: _is_valid_datetime(str(x)) if x else True,
+            "newStatus": lambda x: len(str(x)) > 0
+        }
+    },
+
+    "flights.flight.created": {
+        "required": ["flightId", "flightNumber", "origin", "destination", "aircraftModel", "departureAt", "arrivalAt", "status", "price", "currency"],
+        "optional": [],
+        "types": {
+            "flightId": str,
+            "flightNumber": str,
+            "origin": str,
+            "destination": str,
+            "aircraftModel": str,
+            "departureAt": str,
+            "arrivalAt": str,
+            "status": str,
+            "price": (int, float),
+            "currency": str
+        },
+        "constraints": {
+            "price": lambda x: float(x) >= 0,
+            "currency": lambda x: _is_valid_currency(str(x).upper()),
+            "departureAt": lambda x: _is_valid_datetime(str(x)),
+            "arrivalAt": lambda x: _is_valid_datetime(str(x))
+        }
+    },
+
+    "flights.flight.updated": {
+        "required": ["flightId", "newStatus"],
+        "optional": ["newDepartureAt", "newArrivalAt"],
+        "types": {
+            "flightId": str,
+            "newStatus": str,
+            "newDepartureAt": str,
+            "newArrivalAt": str
+        },
+        "constraints": {
+            "newDepartureAt": lambda x: _is_valid_datetime(str(x)) if x else True,
+            "newArrivalAt": lambda x: _is_valid_datetime(str(x)) if x else True,
+            "newStatus": lambda x: len(str(x)) > 0
+        }
+    },
+
+    "flights.aircraft_or_airline.updated": {
+        "required": ["airlineBrand", "aircraftId", "capacity"],
+        "optional": ["seatMapId"],
+        "types": {
+            "airlineBrand": str,
+            "aircraftId": str,
+            "capacity": int,
+            "seatMapId": str
+        },
+        "constraints": {
+            "capacity": lambda x: int(x) > 0
+        }
+    },
+
+    "payments.payment.status_updated": {
+        "required": ["paymentId", "reservationId", "userId", "status", "amount", "currency", "updatedAt"],
+        "optional": [],
+        "types": {
+            "paymentId": str,
+            "reservationId": str,
+            "userId": str,
+            "status": str,
+            "amount": (int, float),
+            "currency": str,
+            "updatedAt": str
+        },
+        "constraints": {
+            "status": lambda x: str(x) in {"PAID", "FAILED", "PENDING"},
+            "amount": lambda x: float(x) >= 0,
+            "currency": lambda x: _is_valid_currency(str(x).upper()),
+            "updatedAt": lambda x: _is_valid_datetime(str(x))
+        }
+    },
+
+    "users.user.created": {
+        "required": ["userId", "nationalityOrOrigin", "roles", "createdAt"],
+        "optional": [],
+        "types": {
+            "userId": str,
+            "nationalityOrOrigin": str,
+            "roles": list,
+            "createdAt": str
+        },
+        "constraints": {
+            "roles": lambda x: isinstance(x, list) and len(x) > 0,
+            "createdAt": lambda x: _is_valid_datetime(str(x))
         }
     }
 }
@@ -466,6 +630,93 @@ def _validate_and_normalize(event_data: Dict[str, Any]) -> Dict[str, Any]:
                 event_data["tipoAvion"] = normalized_type
                 if normalized_type not in VALID_AIRCRAFT_TYPES:
                     warnings.append(f"Unknown aircraft type: {normalized_type}")
+        elif event_type == "search.cart.item.added":
+            try:
+                event_data["addedAt"] = _normalize_iso_utc(str(event_data["addedAt"]))
+            except Exception as e:
+                errors.append(f"addedAt invalid timestamp: {e}")
+        elif event_type == "search.search.performed":
+            try:
+                event_data["performedAt"] = _normalize_iso_utc(str(event_data["performedAt"]))
+            except Exception as e:
+                errors.append(f"performedAt invalid timestamp: {e}")
+            for date_field in ("departDate", "returnDate"):
+                if date_field in event_data and event_data[date_field]:
+                    if not _is_valid_date(str(event_data[date_field])):
+                        warnings.append(f"{date_field} is not a valid date")
+        elif event_type == "reservations.reservation.created":
+            currency = event_data.get("currency")
+            if currency:
+                normalized_currency = _normalize_currency(currency)
+                event_data["currency"] = normalized_currency
+                if not _is_valid_currency(normalized_currency):
+                    errors.append("currency must be a valid ISO 4217 code")
+            try:
+                event_data["reservedAt"] = _normalize_iso_utc(str(event_data["reservedAt"]))
+            except Exception as e:
+                errors.append(f"reservedAt invalid timestamp: {e}")
+        elif event_type == "reservations.reservation.updated":
+            for f in ("reservationDate", "flightDate"):
+                if f in event_data and event_data[f]:
+                    try:
+                        event_data[f] = _normalize_iso_utc(str(event_data[f]))
+                    except Exception as e:
+                        errors.append(f"{f} invalid timestamp: {e}")
+        elif event_type == "flights.flight.created":
+            for f in ("departureAt", "arrivalAt"):
+                try:
+                    event_data[f] = _normalize_iso_utc(str(event_data[f]))
+                except Exception as e:
+                    errors.append(f"{f} invalid timestamp: {e}")
+            currency = event_data.get("currency")
+            if currency:
+                normalized_currency = _normalize_currency(currency)
+                event_data["currency"] = normalized_currency
+                if not _is_valid_currency(normalized_currency):
+                    errors.append("currency must be a valid ISO 4217 code")
+            try:
+                dep = datetime.fromisoformat(event_data["departureAt"].replace("Z", "+00:00"))
+                arr = datetime.fromisoformat(event_data["arrivalAt"].replace("Z", "+00:00"))
+                if arr < dep:
+                    warnings.append("arrivalAt is earlier than departureAt")
+            except Exception:
+                pass
+        elif event_type == "flights.flight.updated":
+            for f in ("newDepartureAt", "newArrivalAt"):
+                if f in event_data and event_data[f]:
+                    try:
+                        event_data[f] = _normalize_iso_utc(str(event_data[f]))
+                    except Exception as e:
+                        errors.append(f"{f} invalid timestamp: {e}")
+        elif event_type == "flights.aircraft_or_airline.updated":
+            capacity = event_data.get("capacity")
+            if capacity is not None:
+                try:
+                    event_data["capacity"] = int(capacity)
+                except Exception:
+                    errors.append("capacity must be integer")
+        elif event_type == "payments.payment.status_updated":
+            currency = event_data.get("currency")
+            if currency:
+                normalized_currency = _normalize_currency(currency)
+                event_data["currency"] = normalized_currency
+                if not _is_valid_currency(normalized_currency):
+                    errors.append("currency must be a valid ISO 4217 code")
+            status_val = event_data.get("status")
+            if status_val:
+                event_data["status"] = str(status_val).upper()
+            try:
+                event_data["updatedAt"] = _normalize_iso_utc(str(event_data["updatedAt"]))
+            except Exception as e:
+                errors.append(f"updatedAt invalid timestamp: {e}")
+        elif event_type == "users.user.created":
+            try:
+                event_data["createdAt"] = _normalize_iso_utc(str(event_data["createdAt"]))
+            except Exception as e:
+                errors.append(f"createdAt invalid timestamp: {e}")
+            roles = event_data.get("roles")
+            if isinstance(roles, list):
+                event_data["roles"] = [str(role) for role in roles]
 
         # 4) Warnings por campos inesperados
         expected_fields = set(schema["required"] + schema.get("optional", []))

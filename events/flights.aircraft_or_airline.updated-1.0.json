@@ -1,0 +1,14 @@
+{
+  "$id": "https://example.com/schemas/flights.aircraft_or_airline.updated-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "flights.aircraft_or_airline.updated v1.0",
+  "type": "object",
+  "required": ["airlineBrand","aircraftId","capacity"],
+  "properties": {
+    "airlineBrand": { "type": "string" },
+    "aircraftId": { "type": "string" },
+    "capacity": { "type": "integer","minimum": 1 },
+    "seatMapId": { "type": "string" }
+  },
+  "additionalProperties": false
+}

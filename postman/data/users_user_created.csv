@@ -1,0 +1,9 @@
+userId,nationalityOrOrigin,roles,createdAt
+user-1001,AR,"[""traveler"",""loyalty""]",2025-01-15T09:55:00Z
+user-1044,CL,"[""traveler""]",2025-01-15T10:40:00Z
+user-1112,AR,"[""traveler"",""mobile-app""]",2025-01-15T11:05:00Z
+user-1203,BR,"[""traveler"",""newsletter""]",2025-01-15T12:25:00Z
+user-1320,US,"[""traveler"",""corporate""]",2025-01-15T13:15:00Z
+user-1400,UY,"[""traveler"",""agency""]",2025-01-15T14:05:00Z
+user-1455,AR,"[""traveler"",""family""]",2025-01-15T15:47:00Z
+user-1515,ES,"[""traveler"",""loyalty"",""newsletter""]",2025-01-15T17:32:00Z

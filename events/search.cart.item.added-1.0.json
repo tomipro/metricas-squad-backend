@@ -1,0 +1,13 @@
+{
+  "$id": "https://example.com/schemas/search.cart.item.added-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "search.cart.item.added v1.0",
+  "type": "object",
+  "required": ["userId","flightId","addedAt"],
+  "properties": {
+    "userId": { "type": "string" },
+    "flightId": { "type": "string" },
+    "addedAt": { "type": "string","format":"date-time" }
+  },
+  "additionalProperties": false
+}

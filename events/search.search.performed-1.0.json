@@ -1,0 +1,19 @@
+{
+  "$id": "https://example.com/schemas/search.search.performed-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "search.search.performed v1.0",
+  "type": "object",
+  "required": ["searchId","userId","origin","destination","category","performedAt"],
+  "properties": {
+    "searchId": { "type": "string" },
+    "userId": { "type": "string" },
+    "origin": { "type": "string" },
+    "destination": { "type": "string" },
+    "departDate": { "type": "string","format":"date" },
+    "returnDate": { "type": "string","format":"date" },
+    "paxCount": { "type": "integer","minimum":1 },
+    "category": { "type": "string" },
+    "performedAt": { "type": "string","format":"date-time" }
+  },
+  "additionalProperties": false
+}

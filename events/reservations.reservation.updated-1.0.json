@@ -1,0 +1,14 @@
+{
+  "$id": "https://example.com/schemas/reservations.reservation.updated-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reservations.reservation.updated v1.0",
+  "type": "object",
+  "required": ["reservationId","newStatus"],
+  "properties": {
+    "reservationId": { "type": "string" },
+    "newStatus": { "type": "string" },
+    "reservationDate": { "type": "string","format":"date-time" },
+    "flightDate": { "type": "string","format":"date-time" }
+  },
+  "additionalProperties": false
+}

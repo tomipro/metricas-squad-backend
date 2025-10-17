@@ -1,0 +1,14 @@
+{
+  "$id": "https://example.com/schemas/flights.flight.updated-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "flights.flight.updated v1.0",
+  "type": "object",
+  "required": ["flightId","newStatus"],
+  "properties": {
+    "flightId": { "type": "string" },
+    "newStatus": { "type": "string" },
+    "newDepartureAt": { "type": "string","format":"date-time" },
+    "newArrivalAt": { "type": "string","format":"date-time" }
+  },
+  "additionalProperties": false
+}

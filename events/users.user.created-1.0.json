@@ -1,0 +1,14 @@
+{
+  "$id": "https://example.com/schemas/users.user.created-1.0.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "users.user.created v1.0",
+  "type": "object",
+  "required": ["userId","nationalityOrOrigin","roles","createdAt"],
+  "properties": {
+    "userId": { "type": "string" },
+    "nationalityOrOrigin": { "type": "string" },
+    "roles": { "type": "array","items":{"type":"string"} },
+    "createdAt": { "type": "string","format":"date-time" }
+  },
+  "additionalProperties": false
+}
