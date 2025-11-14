@@ -1070,27 +1070,24 @@ def _cancellation_rate(qs):
     return {"period_days":days,"created":created,"canceled":canceled,"cancellation_rate_percent":rate}
 
 def _anticipation(qs):
-    # días entre reserva.ts y flightDate (YYYY-MM-DD)
+    # días entre reservationDate y flightDate para reservas pagadas
     days = _days(qs, 'days', 90)
     q = f"""
-    SELECT AVG(date_diff('day',
-               from_iso8601_timestamp(ts),
-               from_iso8601_timestamp(
-                 concat(
-                   coalesce(
-                     json_extract_scalar(payload_json, '$.flightDate'),
-                     json_extract_scalar(payload_json, '$.flight_date')
-                   ),
-                   'T00:00:00Z'
-                 )
-               )))
-    FROM {CURATED_TABLE}
-    WHERE type IN ('reserva_creada','reservations.reservation.created')
-      AND coalesce(
-            json_extract_scalar(payload_json, '$.flightDate'),
-            json_extract_scalar(payload_json, '$.flight_date')
-          ) IS NOT NULL
-      AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
+    WITH paid_updates AS (
+      SELECT
+        from_iso8601_timestamp(json_extract_scalar(payload_json, '$.reservationDate')) AS reservation_ts,
+        from_iso8601_timestamp(json_extract_scalar(payload_json, '$.flightDate')) AS flight_ts
+      FROM {CURATED_TABLE}
+      WHERE type = 'reservations.reservation.updated'
+        AND upper(coalesce(json_extract_scalar(payload_json, '$.newStatus'), '')) = 'PAID'
+        AND json_extract_scalar(payload_json, '$.reservationDate') IS NOT NULL
+        AND json_extract_scalar(payload_json, '$.flightDate') IS NOT NULL
+        AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
+    )
+    SELECT AVG(date_diff('day', reservation_ts, flight_ts))
+    FROM paid_updates
+    WHERE reservation_ts IS NOT NULL
+      AND flight_ts IS NOT NULL
     """
     r = _exec(q)
     return {"period_days":days,"avg_anticipation_days": (r[0][0] if r else None)}
