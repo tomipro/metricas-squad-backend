@@ -415,33 +415,41 @@ def _search_metrics(qs):
     days = _days(qs, 'days', 7)
     top = _top(qs, 'top', 10)
     q = f"""
-    WITH unified AS (
+    WITH search_data AS (
       SELECT
-        json_extract_scalar(payload_json, '$.flightsFrom') AS origin,
-        json_extract_scalar(payload_json, '$.flightsTo') AS destination,
-        TRY_CAST(json_extract_scalar(payload_json, '$.resultsCount') AS DOUBLE) AS results_count,
+        COALESCE(
+          NULLIF(json_extract_scalar(payload_json, '$.flightsFrom'), 'None'),
+          NULLIF(json_extract_scalar(payload_json, '$.payload.flightsFrom'), 'None'),
+          NULLIF(json_extract_scalar(payload_json, '$.origin'), 'None'),
+          NULLIF(json_extract_scalar(payload_json, '$.payload.origin'), 'None')
+        ) AS origin,
+        COALESCE(
+          NULLIF(json_extract_scalar(payload_json, '$.flightsTo'), 'None'),
+          NULLIF(json_extract_scalar(payload_json, '$.payload.flightsTo'), 'None'),
+          NULLIF(json_extract_scalar(payload_json, '$.destination'), 'None'),
+          NULLIF(json_extract_scalar(payload_json, '$.payload.destination'), 'None')
+        ) AS destination,
+        TRY_CAST(
+          COALESCE(
+            NULLIF(json_extract_scalar(payload_json, '$.resultsCount'), 'None'),
+            NULLIF(json_extract_scalar(payload_json, '$.payload.resultsCount'), 'None')
+          ) AS DOUBLE
+        ) AS results_count,
         try(date_diff(
               'day',
-              from_iso8601_timestamp(concat(json_extract_scalar(payload_json, '$.dateFrom'), 'T00:00:00Z')),
-              from_iso8601_timestamp(concat(json_extract_scalar(payload_json, '$.dateTo'), 'T00:00:00Z'))
+              COALESCE(
+                try(date_parse(NULLIF(json_extract_scalar(payload_json, '$.dateFrom'), 'None'), '%Y-%m-%d')),
+                try(date_parse(NULLIF(json_extract_scalar(payload_json, '$.departureDate'), 'None'), '%Y-%m-%d')),
+                try(date_parse(NULLIF(json_extract_scalar(payload_json, '$.payload.departureDate'), 'None'), '%Y-%m-%d'))
+              ),
+              COALESCE(
+                try(date_parse(NULLIF(json_extract_scalar(payload_json, '$.dateTo'), 'None'), '%Y-%m-%d')),
+                try(date_parse(NULLIF(json_extract_scalar(payload_json, '$.returnDate'), 'None'), '%Y-%m-%d')),
+                try(date_parse(NULLIF(json_extract_scalar(payload_json, '$.payload.returnDate'), 'None'), '%Y-%m-%d'))
+              )
         )) AS trip_length_days
       FROM {CURATED_TABLE}
-      WHERE type = 'search_metric'
-        AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-
-      UNION ALL
-
-      SELECT
-        json_extract_scalar(payload_json, '$.origin') AS origin,
-        json_extract_scalar(payload_json, '$.destination') AS destination,
-        NULL AS results_count,
-        try(date_diff(
-              'day',
-              date_parse(json_extract_scalar(payload_json, '$.departDate'), '%Y-%m-%d'),
-              date_parse(json_extract_scalar(payload_json, '$.returnDate'), '%Y-%m-%d')
-        )) AS trip_length_days
-      FROM {CURATED_TABLE}
-      WHERE type = 'search.search.performed'
+      WHERE type IN ('search_metric', 'search.search.performed')
         AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
     )
     SELECT origin, destination,
@@ -450,7 +458,8 @@ def _search_metrics(qs):
            MAX(results_count) max_results,
            MIN(results_count) min_results,
            AVG(trip_length_days) trip_length_days
-    FROM unified
+    FROM search_data
+    WHERE origin IS NOT NULL AND destination IS NOT NULL
     GROUP BY origin, destination
     ORDER BY searches DESC
     LIMIT {top}
