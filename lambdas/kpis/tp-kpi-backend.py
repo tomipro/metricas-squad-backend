@@ -17,6 +17,17 @@ ATHENA_OUTPUT_BUCKET = os.environ.get('ATHENA_OUTPUT_BUCKET', '')  # e.g. tp-ath
 CURATED_TABLE = os.environ.get('CURATED_TABLE', 'tp_curated_events_tprodan')
 API_KEY = os.environ.get('API_KEY', None)
 
+PAYMENT_APPROVED_STATUSES = ('SUCCESS',)
+PAYMENT_FAILED_STATUSES = ('FAILURE',)
+PAYMENT_PENDING_STATUSES = ('PENDING',)
+PAYMENT_REFUNDED_STATUSES = ('REFUND',)
+PAYMENT_ALL_STATUSES = (
+    PAYMENT_APPROVED_STATUSES
+    + PAYMENT_FAILED_STATUSES
+    + PAYMENT_PENDING_STATUSES
+    + PAYMENT_REFUNDED_STATUSES
+)
+
 if not ATHENA_DATABASE or not CURATED_TABLE or not ATHENA_OUTPUT_BUCKET:
     raise ValueError("ATHENA_DATABASE, CURATED_TABLE, and ATHENA_OUTPUT_BUCKET env vars are required")
 
@@ -215,6 +226,19 @@ def _top(qs: Dict[str, str], key: str, default_val: int) -> int:
         return max(1, int(qs.get(key, str(default_val))))
     except:
         return default_val
+
+def _statuses_clause(statuses: Tuple[str, ...]) -> str:
+    sanitized = []
+    for st in statuses:
+        if not st:
+            continue
+        clean = st.strip().upper().replace("'", "''")
+        if clean:
+            sanitized.append(clean)
+    unique = sorted(set(sanitized))
+    if not unique:
+        return "()"
+    return "(" + ",".join(f"'{st}'" for st in unique) + ")"
 
 def _currency_filter_clause(qs: Dict[str, str]) -> Tuple[str, Optional[str], bool]:
     currency = qs.get('currency')
@@ -730,7 +754,7 @@ def _payments_status(qs):
     )
     SELECT status,
            COUNT(*) cnt,
-           SUM(CASE WHEN status='PAID' THEN amount ELSE NULL END) paid_amount
+           SUM(CASE WHEN status IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)} THEN amount ELSE NULL END) paid_amount
     FROM base
     GROUP BY status
     ORDER BY cnt DESC
@@ -828,7 +852,10 @@ def _funnel(qs):
       SELECT COUNT(*) c FROM {CURATED_TABLE}
       WHERE (
             type='pago_aprobado'
-            OR (type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PAID')
+            OR (
+              type='payments.payment.status_updated'
+              AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
+            )
           )
         AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
     )
@@ -884,8 +911,12 @@ def _revenue_monthly(qs):
            SUM(
              CASE
                WHEN type='pago_aprobado' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-               WHEN type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PAID'
+               WHEN type='payments.payment.status_updated'
+                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
                  THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
+               WHEN type='payments.payment.status_updated'
+                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_REFUNDED_STATUSES)}
+                 THEN -TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
                ELSE NULL
              END
            ) revenue,
@@ -893,7 +924,10 @@ def _revenue_monthly(qs):
     FROM {CURATED_TABLE}
     WHERE (
           type='pago_aprobado'
-          OR (type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status')) IN ('PAID','FAILED','PENDING'))
+          OR (
+            type='payments.payment.status_updated'
+            AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_ALL_STATUSES)}
+          )
         )
       AND from_iso8601_timestamp(ts) >= date_add('month', -{months}, current_date)
     GROUP BY 1 ORDER BY 1 DESC
@@ -908,15 +942,20 @@ def _ltv(qs):
            SUM(
              CASE
                WHEN type='pago_aprobado' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-               WHEN type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PAID'
+               WHEN type='payments.payment.status_updated'
+                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
                  THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
+               WHEN type='payments.payment.status_updated'
+                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_REFUNDED_STATUSES)}
+                 THEN -TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
                ELSE NULL
              END
            ) total_spend,
            SUM(
              CASE
                WHEN type='pago_aprobado' THEN 1
-               WHEN type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PAID' THEN 1
+               WHEN type='payments.payment.status_updated'
+                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)} THEN 1
                ELSE 0
              END
            ) payments
@@ -938,15 +977,20 @@ def _revenue_per_user(qs):
            SUM(
              CASE
                WHEN type='pago_aprobado' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-               WHEN type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PAID'
+               WHEN type='payments.payment.status_updated'
+                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
                  THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
+               WHEN type='payments.payment.status_updated'
+                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_REFUNDED_STATUSES)}
+                 THEN -TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
                ELSE NULL
              END
            ) revenue,
            SUM(
              CASE
                WHEN type='pago_aprobado' THEN 1
-               WHEN type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PAID' THEN 1
+               WHEN type='payments.payment.status_updated'
+                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)} THEN 1
                ELSE 0
              END
            ) payments
@@ -1031,9 +1075,14 @@ def _payment_success(qs):
         CASE
           WHEN type='pago_aprobado' THEN 'approved'
           WHEN type='pago_rechazado' THEN 'rejected'
-          WHEN type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PAID' THEN 'approved'
-          WHEN type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='FAILED' THEN 'rejected'
-          WHEN type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PENDING' THEN 'pending'
+          WHEN type='payments.payment.status_updated'
+               AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)} THEN 'approved'
+          WHEN type='payments.payment.status_updated'
+               AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_FAILED_STATUSES)} THEN 'rejected'
+          WHEN type='payments.payment.status_updated'
+               AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_PENDING_STATUSES)} THEN 'pending'
+          WHEN type='payments.payment.status_updated'
+               AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_REFUNDED_STATUSES)} THEN 'refunded'
           ELSE 'other'
         END AS bucket
       FROM {CURATED_TABLE}
@@ -1043,14 +1092,23 @@ def _payment_success(qs):
     SELECT
       SUM(CASE WHEN bucket='approved' THEN 1 ELSE 0 END) AS approved,
       SUM(CASE WHEN bucket='rejected' THEN 1 ELSE 0 END) AS rejected,
-      SUM(CASE WHEN bucket='pending' THEN 1 ELSE 0 END) AS pending
+      SUM(CASE WHEN bucket='pending' THEN 1 ELSE 0 END) AS pending,
+      SUM(CASE WHEN bucket='refunded' THEN 1 ELSE 0 END) AS refunded
     FROM base
     """
     r = _exec(q)
-    approved, rejected, pending = (r[0] if r else (0,0,0))
-    total = approved + rejected
+    approved, rejected, pending, refunded = (r[0] if r else (0,0,0,0))
+    failed = rejected + refunded
+    total = approved + failed
     rate = round((approved/total)*100, 2) if total>0 else 0.0
-    return {"period_days":days,"approved":approved,"rejected":rejected,"pending":pending,"success_rate_percent":rate}
+    return {
+        "period_days":days,
+        "approved":approved,
+        "rejected":rejected,
+        "pending":pending,
+        "refunded":refunded,
+        "success_rate_percent":rate
+    }
 
 def _cancellation_rate(qs):
     days = _days(qs, 'days', 7)
@@ -1134,7 +1192,10 @@ def _time_to_complete(qs):
       FROM {CURATED_TABLE}
       WHERE (
             type='pago_aprobado'
-            OR (type='payments.payment.status_updated' AND upper(json_extract_scalar(payload_json, '$.status'))='PAID')
+            OR (
+              type='payments.payment.status_updated'
+              AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
+            )
           )
         AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
     ),

@@ -380,7 +380,7 @@ EVENT_SCHEMAS = {
             "updatedAt": str
         },
         "constraints": {
-            "status": lambda x: str(x) in {"PAID", "FAILED", "PENDING"},
+            "status": lambda x: str(x).upper() in {"SUCCESS", "FAILURE", "PENDING", "REFUND"},
             "amount": lambda x: float(x) >= 0,
             "currency": lambda x: _is_valid_currency(str(x).upper()),
             "updatedAt": lambda x: _is_valid_datetime(str(x))
