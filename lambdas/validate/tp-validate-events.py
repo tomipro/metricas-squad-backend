@@ -259,9 +259,24 @@ EVENT_SCHEMAS = {
     },
 
     "search.search.performed": {
-        "required": ["searchId", "userId", "origin", "destination", "category", "performedAt"],
-        "optional": ["departDate", "returnDate", "paxCount"],
+        "required": ["flightsFrom", "flightsTo", "departureDate", "resultsCount", "timestamp"],
+        "optional": [
+            "searchId",
+            "userId",
+            "origin",
+            "destination",
+            "category",
+            "performedAt",
+            "departDate",
+            "returnDate",
+            "paxCount"
+        ],
         "types": {
+            "flightsFrom": str,
+            "flightsTo": str,
+            "departureDate": str,
+            "resultsCount": (int, float),
+            "timestamp": str,
             "searchId": str,
             "userId": str,
             "origin": str,
@@ -273,9 +288,12 @@ EVENT_SCHEMAS = {
             "paxCount": int
         },
         "constraints": {
-            "performedAt": lambda x: _is_valid_datetime(str(x)),
+            "departureDate": lambda x: _is_valid_date(str(x)),
             "departDate": lambda x: _is_valid_date(str(x)) if x else True,
             "returnDate": lambda x: _is_valid_date(str(x)) if x else True,
+            "performedAt": lambda x: _is_valid_datetime(str(x)) if x else True,
+            "timestamp": lambda x: _is_valid_datetime(str(x)),
+            "resultsCount": lambda x: int(float(x)) >= 0,
             "paxCount": lambda x: int(x) >= 1 if x is not None else True
         }
     },
@@ -636,10 +654,20 @@ def _validate_and_normalize(event_data: Dict[str, Any]) -> Dict[str, Any]:
             except Exception as e:
                 errors.append(f"addedAt invalid timestamp: {e}")
         elif event_type == "search.search.performed":
-            try:
-                event_data["performedAt"] = _normalize_iso_utc(str(event_data["performedAt"]))
-            except Exception as e:
-                errors.append(f"performedAt invalid timestamp: {e}")
+            if event_data.get("performedAt"):
+                try:
+                    event_data["performedAt"] = _normalize_iso_utc(str(event_data["performedAt"]))
+                except Exception as e:
+                    errors.append(f"performedAt invalid timestamp: {e}")
+            elif event_data.get("timestamp"):
+                try:
+                    event_data["performedAt"] = _normalize_iso_utc(str(event_data["timestamp"]))
+                except Exception as e:
+                    warnings.append(f"timestamp could not be normalized: {e}")
+            for field_pair in (("origin", "flightsFrom"), ("destination", "flightsTo")):
+                primary, fallback_field = field_pair
+                if not event_data.get(primary) and event_data.get(fallback_field):
+                    event_data[primary] = event_data[fallback_field]
             for date_field in ("departDate", "returnDate"):
                 if date_field in event_data and event_data[date_field]:
                     if not _is_valid_date(str(event_data[date_field])):
