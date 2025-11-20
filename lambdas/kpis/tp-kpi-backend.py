@@ -907,30 +907,68 @@ def _avg_fare(qs):
 def _revenue_monthly(qs):
     months = _days(qs, 'months', 6)
     q = f"""
-    SELECT date_format(from_iso8601_timestamp(ts), '%Y-%m') ym,
+    WITH legacy_payments AS (
+      SELECT
+        date_format(from_iso8601_timestamp(ts), '%Y-%m') AS ym,
+        TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE) AS amount
+      FROM {CURATED_TABLE}
+      WHERE type='pago_aprobado'
+        AND from_iso8601_timestamp(ts) >= date_add('month', -{months}, current_date)
+    ),
+    payment_updates AS (
+      SELECT
+        date_format(from_iso8601_timestamp(ts), '%Y-%m') AS ym,
+        COALESCE(
+          json_extract_scalar(payload_json, '$.paymentId'),
+          json_extract_scalar(payload_json, '$.reservationId'),
+          eventid
+        ) AS payment_key,
+        upper(json_extract_scalar(payload_json, '$.status')) AS status,
+        TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE) AS amount,
+        row_number() OVER (
+          PARTITION BY
+            COALESCE(
+              json_extract_scalar(payload_json, '$.paymentId'),
+              json_extract_scalar(payload_json, '$.reservationId'),
+              eventid
+            ),
+            upper(json_extract_scalar(payload_json, '$.status'))
+          ORDER BY from_iso8601_timestamp(ts) DESC, eventid DESC
+        ) AS rn
+      FROM {CURATED_TABLE}
+      WHERE type='payments.payment.status_updated'
+        AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_ALL_STATUSES)}
+        AND from_iso8601_timestamp(ts) >= date_add('month', -{months}, current_date)
+    ),
+    dedup_updates AS (
+      SELECT ym, status, amount
+      FROM payment_updates
+      WHERE rn = 1
+    ),
+    unified AS (
+      SELECT ym, amount, NULL AS status, 'legacy' AS source FROM legacy_payments
+      UNION ALL
+      SELECT ym, amount, status, 'status' AS source FROM dedup_updates
+    )
+    SELECT ym,
            SUM(
              CASE
-               WHEN type='pago_aprobado' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-               WHEN type='payments.payment.status_updated'
-                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
-                 THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-               WHEN type='payments.payment.status_updated'
-                    AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_REFUNDED_STATUSES)}
-                 THEN -TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-               ELSE NULL
+               WHEN source='legacy' THEN amount
+               WHEN status IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)} THEN amount
+               WHEN status IN {_statuses_clause(PAYMENT_REFUNDED_STATUSES)} THEN -amount
+               ELSE 0
              END
-           ) revenue,
-           COUNT(*) payments
-    FROM {CURATED_TABLE}
-    WHERE (
-          type='pago_aprobado'
-          OR (
-            type='payments.payment.status_updated'
-            AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_ALL_STATUSES)}
-          )
-        )
-      AND from_iso8601_timestamp(ts) >= date_add('month', -{months}, current_date)
-    GROUP BY 1 ORDER BY 1 DESC
+           ) AS revenue,
+           SUM(
+             CASE
+               WHEN source='legacy' THEN 1
+               WHEN status IN {_statuses_clause(PAYMENT_ALL_STATUSES)} THEN 1
+               ELSE 0
+             END
+           ) AS payments
+    FROM unified
+    GROUP BY ym
+    ORDER BY ym DESC
     """
     r = _exec(q)
     return {"months": months, "monthly": [{"ym":row[0],"revenue":row[1] or 0,"payments":row[2] or 0} for row in r]}
