@@ -591,7 +591,7 @@ def _catalog_airline_summary(qs):
         COALESCE(
           TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE),
             CASE upper(json_extract_scalar(payload_json, '$.aircraftModel'))
-              WHEN 'E190' THEN 112h
+              WHEN 'E190' THEN 112
               WHEN 'E109' THEN 112
               WHEN 'A330' THEN 288
               WHEN 'B737' THEN 180
