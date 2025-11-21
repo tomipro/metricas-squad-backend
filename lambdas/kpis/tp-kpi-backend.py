@@ -75,6 +75,8 @@ def lambda_handler(event, context):
             out = _catalog_aircraft(qs)
         elif path.endswith('/analytics/catalog/routes'):
             out = _catalog_routes(qs)
+        elif path.endswith('/analytics/airlines/capacity'):
+            out = _airline_capacity(qs)
         elif path.endswith('/analytics/search/cart'):
             out = _search_cart_summary(qs)
         elif path.endswith('/analytics/reservations/updates'):
@@ -129,6 +131,7 @@ def lambda_handler(event, context):
                     "/analytics/catalog/status",
                     "/analytics/catalog/aircraft",
                     "/analytics/catalog/routes",
+                    "/analytics/airlines/capacity",
                     "/analytics/search/cart",
                     "/analytics/reservations/updates",
                     "/analytics/payments/status",
@@ -332,30 +335,86 @@ def _revenue_legacy(qs):
     # compat: revenue basado en reservas (precio)
     days = _days(qs, 'days', 30)
     q = f"""
-    SELECT DATE(from_iso8601_timestamp(ts)) d,
-           SUM(
-             CASE
-               WHEN type='reserva_creada' THEN TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)
-               WHEN type='reservations.reservation.created' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-               ELSE NULL
-             END
-           ),
-           COUNT(*),
-           AVG(
-             CASE
-               WHEN type='reserva_creada' THEN TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)
-               WHEN type='reservations.reservation.created' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-               ELSE NULL
-             END
-           )
-    FROM {CURATED_TABLE}
-    WHERE type IN ('reserva_creada', 'reservations.reservation.created')
-      AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, current_date)
-      AND (
-        (type='reserva_creada' AND TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE) > 0)
-        OR (type='reservations.reservation.created' AND TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE) > 0)
+    WITH reservations AS (
+      SELECT
+        COALESCE(
+          json_extract_scalar(payload_json, '$.reservaId'),
+          json_extract_scalar(payload_json, '$.reservationId')
+        ) AS reservation_id,
+        CASE
+          WHEN type='reserva_creada' THEN TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)
+          WHEN type='reservations.reservation.created' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
+          ELSE NULL
+        END AS amount,
+        from_iso8601_timestamp(ts) AS ts
+      FROM {CURATED_TABLE}
+      WHERE type IN ('reserva_creada','reservations.reservation.created')
+        AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, current_date)
+        AND COALESCE(
+              json_extract_scalar(payload_json, '$.reservaId'),
+              json_extract_scalar(payload_json, '$.reservationId')
+            ) IS NOT NULL
+        AND (
+          (type='reserva_creada' AND TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE) > 0)
+          OR (type='reservations.reservation.created' AND TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE) > 0)
+        )
+    ),
+    payment_events AS (
+      SELECT
+        json_extract_scalar(payload_json, '$.reservationId') AS reservation_id,
+        upper(json_extract_scalar(payload_json, '$.status')) AS status,
+        from_iso8601_timestamp(ts) AS ts,
+        eventid
+      FROM {CURATED_TABLE}
+      WHERE type='payments.payment.status_updated'
+        AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_ALL_STATUSES)}
+
+      UNION ALL
+
+      SELECT
+        json_extract_scalar(payload_json, '$.reservaId') AS reservation_id,
+        'SUCCESS' AS status,
+        from_iso8601_timestamp(ts) AS ts,
+        eventid
+      FROM {CURATED_TABLE}
+      WHERE type='pago_aprobado'
+
+      UNION ALL
+
+      SELECT
+        json_extract_scalar(payload_json, '$.reservaId') AS reservation_id,
+        'FAILURE' AS status,
+        from_iso8601_timestamp(ts) AS ts,
+        eventid
+      FROM {CURATED_TABLE}
+      WHERE type='pago_rechazado'
+    ),
+    latest_payments AS (
+      SELECT reservation_id, status
+      FROM (
+        SELECT reservation_id,
+               status,
+               row_number() OVER (
+                 PARTITION BY reservation_id
+                 ORDER BY ts DESC, eventid DESC
+               ) AS rn
+        FROM payment_events
+        WHERE reservation_id IS NOT NULL
       )
-    GROUP BY DATE(from_iso8601_timestamp(ts))
+      WHERE rn = 1
+    ),
+    paid_reservations AS (
+      SELECT r.amount, r.ts
+      FROM reservations r
+      JOIN latest_payments lp ON r.reservation_id = lp.reservation_id
+      WHERE lp.status IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
+    )
+    SELECT DATE(ts) AS d,
+           SUM(amount) AS revenue,
+           COUNT(*) AS bookings,
+           AVG(amount) AS avg_price
+    FROM paid_reservations
+    GROUP BY DATE(ts)
     ORDER BY d DESC
     """
     res = _exec(q)
@@ -517,24 +576,53 @@ def _catalog_airline_summary(qs):
     days = _days(qs, 'days', 7)
     currency_clause, currency, invalid_currency = _currency_filter_clause(qs)
     q = f"""
-    SELECT
-        coalesce(
+    WITH flights_data AS (
+      SELECT
+        COALESCE(
+          json_extract_scalar(payload_json, '$.flightId'),
+          json_extract_scalar(payload_json, '$.flightNumber')
+        ) AS flight_key,
+        COALESCE(
             json_extract_scalar(payload_json, '$.aerolinea'),
             json_extract_scalar(payload_json, '$.airlineBrand'),
             json_extract_scalar(payload_json, '$.flightNumber')
         ) AS aerolinea,
+        TRY_CAST(coalesce(json_extract_scalar(payload_json, '$.precio'), json_extract_scalar(payload_json, '$.price')) AS DOUBLE) AS price,
+        COALESCE(
+          TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE),
+            CASE upper(json_extract_scalar(payload_json, '$.aircraftModel'))
+              WHEN 'E190' THEN 112h
+              WHEN 'E109' THEN 112
+              WHEN 'A330' THEN 288
+              WHEN 'B737' THEN 180
+              WHEN 'BOEING 737' THEN 180
+              ELSE NULL
+            END
+        ) AS capacity,
+        row_number() OVER (
+          PARTITION BY COALESCE(
+            json_extract_scalar(payload_json, '$.flightId'),
+            json_extract_scalar(payload_json, '$.flightNumber')
+          )
+          ORDER BY from_iso8601_timestamp(ts) DESC
+        ) AS rn
+      FROM {CURATED_TABLE}
+      WHERE type IN ('catalogo','flights.flight.created')
+        AND from_iso8601_timestamp(coalesce(json_extract_scalar(payload_json, '$.despegue'), json_extract_scalar(payload_json, '$.departureAt')))
+            BETWEEN current_timestamp AND date_add('day', {days}, current_timestamp)
+        {currency_clause}
+    )
+    SELECT
+        aerolinea,
         COUNT(*) flights,
-        AVG(TRY_CAST(coalesce(json_extract_scalar(payload_json, '$.precio'), json_extract_scalar(payload_json, '$.price')) AS DOUBLE)) avg_price,
-        MIN(TRY_CAST(coalesce(json_extract_scalar(payload_json, '$.precio'), json_extract_scalar(payload_json, '$.price')) AS DOUBLE)) min_price,
-        MAX(TRY_CAST(coalesce(json_extract_scalar(payload_json, '$.precio'), json_extract_scalar(payload_json, '$.price')) AS DOUBLE)) max_price,
-        AVG(TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE)) avg_capacity,
-        SUM(TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE)) total_capacity
-    FROM {CURATED_TABLE}
-    WHERE type IN ('catalogo','flights.flight.created')
-      AND from_iso8601_timestamp(coalesce(json_extract_scalar(payload_json, '$.despegue'), json_extract_scalar(payload_json, '$.departureAt')))
-          BETWEEN current_timestamp AND date_add('day', {days}, current_timestamp)
-      {currency_clause}
-    GROUP BY 1
+        AVG(price) avg_price,
+        MIN(price) min_price,
+        MAX(price) max_price,
+        AVG(capacity) avg_capacity,
+        SUM(capacity) total_capacity
+    FROM flights_data
+    WHERE rn = 1
+    GROUP BY aerolinea
     ORDER BY flights DESC
     """
     res = _exec(q)
@@ -661,6 +749,121 @@ def _catalog_routes(qs):
                 "min_price": row[4],
                 "max_price": row[5],
                 "avg_capacity": row[6],
+            }
+            for row in res
+        ],
+    }
+
+def _airline_capacity(qs):
+    days = _days(qs, 'days', 7)
+    q = f"""
+    WITH flights AS (
+      SELECT
+        COALESCE(
+          json_extract_scalar(payload_json, '$.flightId'),
+          json_extract_scalar(payload_json, '$.flightNumber')
+        ) AS flight_key,
+        COALESCE(
+          json_extract_scalar(payload_json, '$.aerolinea'),
+          json_extract_scalar(payload_json, '$.airlineBrand'),
+          json_extract_scalar(payload_json, '$.flightNumber')
+        ) AS airline,
+        COALESCE(
+          TRY_CAST(json_extract_scalar(payload_json, '$.capacidadAvion') AS DOUBLE),
+            CASE upper(json_extract_scalar(payload_json, '$.aircraftModel'))
+              WHEN 'E190' THEN 112
+              WHEN 'E109' THEN 112
+              WHEN 'A330' THEN 288
+              WHEN 'B737' THEN 180
+              WHEN 'BOEING 737' THEN 180
+              ELSE NULL
+            END
+        ) AS capacity,
+        upper(json_extract_scalar(payload_json, '$.aircraftModel')) AS aircraft_model,
+        row_number() OVER (
+          PARTITION BY COALESCE(
+            json_extract_scalar(payload_json, '$.flightId'),
+            json_extract_scalar(payload_json, '$.flightNumber')
+          )
+          ORDER BY from_iso8601_timestamp(ts) DESC
+        ) AS rn
+      FROM {CURATED_TABLE}
+      WHERE type IN ('catalogo','flights.flight.created')
+        AND from_iso8601_timestamp(coalesce(json_extract_scalar(payload_json, '$.despegue'), json_extract_scalar(payload_json, '$.departureAt')))
+            BETWEEN current_timestamp AND date_add('day', {days}, current_timestamp)
+    ),
+    payment_updates AS (
+      SELECT
+        COALESCE(
+          json_extract_scalar(payload_json, '$.paymentId'),
+          json_extract_scalar(payload_json, '$.reservationId'),
+          eventid
+        ) AS payment_key,
+        json_extract_scalar(payload_json, '$.reservationId') AS reservation_id,
+        upper(json_extract_scalar(payload_json, '$.status')) AS status,
+        row_number() OVER (
+          PARTITION BY COALESCE(
+            json_extract_scalar(payload_json, '$.paymentId'),
+            json_extract_scalar(payload_json, '$.reservationId'),
+            eventid
+          )
+          ORDER BY from_iso8601_timestamp(ts) DESC, eventid DESC
+        ) AS rn
+      FROM {CURATED_TABLE}
+      WHERE type='payments.payment.status_updated'
+        AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_ALL_STATUSES)}
+    ),
+    latest_payments AS (
+      SELECT reservation_id, status
+      FROM payment_updates
+      WHERE rn = 1
+    ),
+    reservations AS (
+      SELECT
+        json_extract_scalar(payload_json, '$.reservationId') AS reservation_id,
+        json_extract_scalar(payload_json, '$.flightId') AS flight_key,
+        COALESCE(
+          TRY_CAST(json_extract_scalar(payload_json, '$.paxCount') AS DOUBLE),
+          1
+        ) AS pax
+      FROM {CURATED_TABLE}
+      WHERE type='reservations.reservation.created'
+        AND json_extract_scalar(payload_json, '$.flightId') IS NOT NULL
+    ),
+    paid_reservations AS (
+      SELECT r.flight_key, SUM(r.pax) seats_sold
+      FROM reservations r
+      JOIN latest_payments p ON r.reservation_id = p.reservation_id
+      WHERE p.status IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
+      GROUP BY r.flight_key
+    )
+    SELECT
+      airline,
+      COUNT(DISTINCT flight_key) AS flights,
+      SUM(capacity) AS total_capacity,
+      COALESCE(SUM(seats_sold), 0) AS seats_sold,
+      ROUND(
+        COALESCE(SUM(seats_sold), 0) / NULLIF(SUM(capacity), 0) * 100,
+        2
+      ) AS occupancy_percent,
+      array_join(array_distinct(array_agg(aircraft_model)), ', ') AS aircraft_types
+    FROM flights
+    LEFT JOIN paid_reservations USING (flight_key)
+    WHERE rn = 1
+    GROUP BY airline
+    ORDER BY total_capacity DESC
+    """
+    res = _exec(q)
+    return {
+        "period_days": days,
+        "airlines": [
+            {
+                "airline": row[0],
+                "flights": row[1],
+                "total_capacity": row[2],
+                "seats_sold": row[3],
+                "occupancy_percent": row[4],
+                "aircraft_types": row[5],
             }
             for row in res
         ],
@@ -886,20 +1089,77 @@ def _funnel(qs):
 def _avg_fare(qs):
     days = _days(qs, 'days', 7)
     q = f"""
-    SELECT AVG(
-      CASE
-        WHEN type='reserva_creada' THEN TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)
-        WHEN type='reservations.reservation.created' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
-        ELSE NULL
-      END
-    )
-    FROM {CURATED_TABLE}
-    WHERE type IN ('reserva_creada','reservations.reservation.created')
-      AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
-      AND (
-        (type='reserva_creada' AND json_extract_scalar(payload_json, '$.precio') IS NOT NULL)
-        OR (type='reservations.reservation.created' AND json_extract_scalar(payload_json, '$.amount') IS NOT NULL)
+    WITH reservations AS (
+      SELECT
+        COALESCE(
+          json_extract_scalar(payload_json, '$.reservaId'),
+          json_extract_scalar(payload_json, '$.reservationId')
+        ) AS reservation_id,
+        CASE
+          WHEN type='reserva_creada' THEN TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE)
+          WHEN type='reservations.reservation.created' THEN TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE)
+          ELSE NULL
+        END AS amount
+      FROM {CURATED_TABLE}
+      WHERE type IN ('reserva_creada','reservations.reservation.created')
+        AND from_iso8601_timestamp(ts) >= date_add('day', -{days}, now())
+        AND COALESCE(
+              json_extract_scalar(payload_json, '$.reservaId'),
+              json_extract_scalar(payload_json, '$.reservationId')
+            ) IS NOT NULL
+        AND (
+          (type='reserva_creada' AND TRY_CAST(json_extract_scalar(payload_json, '$.precio') AS DOUBLE) > 0)
+          OR (type='reservations.reservation.created' AND TRY_CAST(json_extract_scalar(payload_json, '$.amount') AS DOUBLE) > 0)
+        )
+    ),
+    payment_events AS (
+      SELECT
+        json_extract_scalar(payload_json, '$.reservationId') AS reservation_id,
+        upper(json_extract_scalar(payload_json, '$.status')) AS status,
+        from_iso8601_timestamp(ts) AS ts,
+        eventid
+      FROM {CURATED_TABLE}
+      WHERE type='payments.payment.status_updated'
+        AND upper(json_extract_scalar(payload_json, '$.status')) IN {_statuses_clause(PAYMENT_ALL_STATUSES)}
+
+      UNION ALL
+
+      SELECT
+        json_extract_scalar(payload_json, '$.reservaId') AS reservation_id,
+        'SUCCESS' AS status,
+        from_iso8601_timestamp(ts) AS ts,
+        eventid
+      FROM {CURATED_TABLE}
+      WHERE type='pago_aprobado'
+
+      UNION ALL
+
+      SELECT
+        json_extract_scalar(payload_json, '$.reservaId') AS reservation_id,
+        'FAILURE' AS status,
+        from_iso8601_timestamp(ts) AS ts,
+        eventid
+      FROM {CURATED_TABLE}
+      WHERE type='pago_rechazado'
+    ),
+    latest_payments AS (
+      SELECT reservation_id, status
+      FROM (
+        SELECT reservation_id,
+               status,
+               row_number() OVER (
+                 PARTITION BY reservation_id
+                 ORDER BY ts DESC, eventid DESC
+               ) AS rn
+        FROM payment_events
+        WHERE reservation_id IS NOT NULL
       )
+      WHERE rn = 1
+    )
+    SELECT AVG(amount)
+    FROM reservations r
+    JOIN latest_payments lp ON r.reservation_id = lp.reservation_id
+    WHERE lp.status IN {_statuses_clause(PAYMENT_APPROVED_STATUSES)}
     """
     r = _exec(q)
     return {"period_days":days,"avg_fare": (r[0][0] if r else None)}
